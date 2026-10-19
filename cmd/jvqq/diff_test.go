@@ -119,7 +119,19 @@ func TestDifferentialAgainstJq(t *testing.T) {
 		nil,
 	}
 	failures := 0
-	for _, c := range loadCases(t) {
+	cases := loadCases(t)
+	refused := 0
+	for _, c := range cases {
+		if c.unsupported {
+			refused++
+		}
+	}
+	defer func() {
+		if !t.Failed() {
+			t.Logf("%s: %d filters gave the same output and exit code as jq, each split %d ways; %d unsupported features refused", jqVersion(t), len(cases)-refused, len(modes), refused)
+		}
+	}()
+	for _, c := range cases {
 		args := append(append([]string{}, c.flags...), c.filter)
 		input := corpus
 		if nullInput(c.flags) {

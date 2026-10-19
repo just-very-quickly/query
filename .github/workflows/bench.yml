@@ -3,7 +3,8 @@ name: bench
 # Times jvqq against jq, jaq, gojq and qj on a GitHub-hosted runner, on 1 GiB
 # of generated JSON Lines logs (test/bench/gen.go), with scripts/bench.py:
 # reformat, select, a nested field, a smaller object, count, count by and
-# sum by. Every output is checked against jq's. It runs when the code that
+# sum by. Every output is checked against jq's. Then jvqq alone on 6 GiB,
+# checking that every line is read and memory stays flat. It runs when the code that
 # reads or evaluates changes, or by hand, and takes about an hour.
 #
 # The results go to the bench-results branch, in github-ubuntu-latest/,
@@ -62,9 +63,12 @@ jobs:
           chmod +x "$t"/*
           for x in jvqq jq jaq gojq qj; do "$t/$x" --version; done
       - name: Make the data
-        run: go run test/bench/gen.go -mb 1024 -out "$RUNNER_TEMP/logs.jsonl"
+        run: |
+          go run test/bench/gen.go -mb 1024 -out "$RUNNER_TEMP/logs.jsonl"
+          go run test/bench/gen.go -mb 6144 -seed 2 -out "$RUNNER_TEMP/big.jsonl"
+          df -h "$RUNNER_TEMP"
       - name: Record
-        run: python3 scripts/bench.py --tools "$RUNNER_TEMP/tools" --data "$RUNNER_TEMP/logs.jsonl" --out "$RUNNER_TEMP/bench" 2> >(tee "$RUNNER_TEMP/bench-progress.txt" >&2)
+        run: python3 scripts/bench.py --tools "$RUNNER_TEMP/tools" --data "$RUNNER_TEMP/logs.jsonl" --big "$RUNNER_TEMP/big.jsonl" --out "$RUNNER_TEMP/bench" 2> >(tee "$RUNNER_TEMP/bench-progress.txt" >&2)
         shell: bash
       - name: Job summary
         if: always()

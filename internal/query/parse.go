@@ -377,6 +377,9 @@ func (p *parser) postfix(allowAs bool) (node, error) {
 			if err != nil {
 				return nil, err
 			}
+			if t := p.peek(); t.kind == tOp && t.text == "?//" {
+				return nil, p.errorf(t, "destructuring alternatives (?//) aren't supported")
+			}
 			if err := p.expectOp("|"); err != nil {
 				return nil, err
 			}

@@ -479,3 +479,5 @@
 -c	.ms? | abs
 -nc --arg x 1 --argjson y {"a":[2]}	$ARGS
 -c --arg level error	select(.level == $level) | $ARGS.named
+~-nc	. as $x ?// [$x] | $x
+-nc	[1425599507, 0, 1704067199, 1704067200, 1735603200, 951782400] | map(gmtime | strftime("%c|%C|%g|%G|%k|%l|%r|%U|%V|%W|%x|%X|%D|%e|%j|%u|%w"))

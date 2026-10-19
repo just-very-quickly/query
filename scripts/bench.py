@@ -155,6 +155,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--only", help="comma-separated workload names")
+    ap.add_argument("--big", help="a much larger file, for jvqq alone: memory stays flat and every line is read")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     scratch = os.path.join(args.out, "scratch")
@@ -237,12 +238,48 @@ def main():
         if ref_path and os.path.exists(ref_path):
             os.remove(ref_path)
 
+    big = big_file(args.big, tools["jvqq"]["path"], peak_bin, scratch) if args.big else None
     with open(os.path.join(args.out, "bench.json"), "w") as f:
-        json.dump({"environment": env, "results": results}, f, indent=2)
+        json.dump({"environment": env, "results": results, "big_file": big}, f, indent=2)
         f.write("\n")
     with open(os.path.join(args.out, "bench.md"), "w") as f:
-        f.write(markdown(env, results))
+        f.write(markdown(env, results, big))
     os.rmdir(scratch)
+
+
+def count_lines(path):
+    with open(path, "rb") as f:
+        return sum(chunk.count(b"\n") for chunk in iter(lambda: f.read(1 << 24), b""))
+
+
+def big_file(path, jvqq, peak_bin, scratch):
+    """jvqq alone on a much larger file, once each: the answers are checked
+    against a line count made here, and the peak memory is recorded."""
+    lines = count_lines(path)
+    print(f"bench: big file, {os.path.getsize(path) >> 20} MiB, {lines} lines", file=sys.stderr)
+    runs = []
+    out = os.path.join(scratch, "big.out")
+    for name, a in [("count", ["count"]),
+                    ("count by", ["-c", "count_by(.level)"]),
+                    ("select", ["-c", 'select(.level == "error") | .ts']),
+                    ("reformat", ["-c", "."])]:
+        wall, rss, code, err = run_once(peak_bin, [jvqq] + a + [path], out)
+        row = {"workload": name, "command": ["jvqq"] + a + ["FILE"], "seconds": round(wall, 3),
+               "peak_mib": round(rss, 1), "exit": code}
+        if name == "count":
+            with open(out) as f:
+                row["check"] = "every line counted" if code == 0 and int(f.read()) == lines else "WRONG COUNT"
+        elif name == "count by":
+            with open(out) as f:
+                row["check"] = "counts add up to the lines" if code == 0 and sum(json.load(f).values()) == lines else "WRONG COUNTS"
+        elif name == "reformat":
+            row["check"] = "one output line per input line" if code == 0 and count_lines(out) == lines else "WRONG LINES"
+        else:
+            row["check"] = f"{count_lines(out)} lines out" if code == 0 else f"exit {code}: {err[:200]}"
+        print(f"bench: big {name:9} {row['seconds']:8.3f}s {rss:7.0f} MiB  {row['check']}", file=sys.stderr)
+        runs.append(row)
+        os.remove(out)
+    return {"file_bytes": os.path.getsize(path), "file_lines": lines, "runs": runs}
 
 
 def shell_quote(a):
@@ -251,7 +288,7 @@ def shell_quote(a):
     return "'" + a.replace("'", "'\\''") + "'"
 
 
-def markdown(env, results):
+def markdown(env, results, big=None):
     out = []
     out.append(f"File: {env['file_bytes'] / (1 << 20):.0f} MiB of JSON Lines, {env['file_lines']:,} lines "
                f"(test/bench/gen.go). Machine: {env['cpu']}, {env['cores']} cores, {env['os']}. "
@@ -272,6 +309,14 @@ def markdown(env, results):
                 continue
             speed = f"{jq['seconds'] / r['seconds']:.1f}x" if jq and r["seconds"] > 0 else ""
             out.append(f"| {r['tool']} | `{c}` | {r['seconds']:.2f} | {speed} | {r['peak_mib']:.0f} MiB | {r['output']} |\n")
+    if big:
+        out.append(f"\n### A larger file: jvqq alone\n\n{big['file_bytes'] / (1 << 30):.1f} GiB, "
+                   f"{big['file_lines']:,} lines, one run each. The checks compare jvqq's answers with a line "
+                   f"count made by the benchmark script.\n")
+        out.append("\n| workload | command | seconds | peak memory | check |\n|---|---|---:|---:|---|\n")
+        for r in big["runs"]:
+            c = " ".join(shell_quote(x) for x in r["command"]).replace("|", "\\|")
+            out.append(f"| {r['workload']} | `{c}` | {r['seconds']:.2f} | {r['peak_mib']:.0f} MiB | {r['check']} |\n")
     return "".join(out)
 
 

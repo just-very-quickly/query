@@ -20,8 +20,9 @@
 #
 # With BENCH_TOOLS set to a folder holding jq, jaq, gojq, qj and peak (see
 # scripts/bench.py), it also times them on this machine against a fresh
-# build of jvqq, on BENCH_MB MiB of generated logs (default 1024), and
-# writes bench.json and bench.md.
+# build of jvqq, on BENCH_MB MiB of generated logs (default 1024), then runs
+# jvqq alone on BENCH_BIG_MB MiB (default 6144; 0 skips it), and writes
+# bench.json and bench.md.
 #
 #   sh scripts/record.sh
 set -eu
@@ -46,7 +47,13 @@ if [ -n "${BENCH_TOOLS:-}" ]; then
   CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o "$BENCH_TOOLS/jvqq" ./cmd/jvqq
   data=$(mktemp -d)
   go run test/bench/gen.go -mb "${BENCH_MB:-1024}" -out "$data/logs.jsonl"
-  python3 scripts/bench.py --tools "$BENCH_TOOLS" --data "$data/logs.jsonl" --out "$out"
+  big=""
+  if [ "${BENCH_BIG_MB:-6144}" != 0 ]; then
+    go run test/bench/gen.go -mb "${BENCH_BIG_MB:-6144}" -seed 2 -out "$data/big.jsonl"
+    big="--big $data/big.jsonl"
+  fi
+  # shellcheck disable=SC2086
+  python3 scripts/bench.py --tools "$BENCH_TOOLS" --data "$data/logs.jsonl" $big --out "$out"
   rm -rf "$data"
 fi
 

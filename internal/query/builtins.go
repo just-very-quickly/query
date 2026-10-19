@@ -1504,9 +1504,53 @@ func strftime(t time.Time, f string) string {
 		case 'y':
 			fmt.Fprintf(&sb, "%02d", t.Year()%100)
 		case 'Z':
-			sb.WriteString("UTC")
+			if t.Location() == time.UTC {
+				sb.WriteString("UTC")
+			} else {
+				sb.WriteString(t.Format("MST"))
+			}
 		case 'z':
-			sb.WriteString("+0000")
+			sb.WriteString(t.Format("-0700"))
+		case 'c':
+			fmt.Fprintf(&sb, "%s %s %2d %02d:%02d:%02d %d", t.Weekday().String()[:3], t.Month().String()[:3], t.Day(), t.Hour(), t.Minute(), t.Second(), t.Year())
+		case 'C':
+			fmt.Fprintf(&sb, "%02d", t.Year()/100)
+		case 'g', 'G', 'V':
+			y, w := t.ISOWeek()
+			switch f[i] {
+			case 'g':
+				fmt.Fprintf(&sb, "%02d", y%100)
+			case 'G':
+				sb.WriteString(strconv.Itoa(y))
+			default:
+				fmt.Fprintf(&sb, "%02d", w)
+			}
+		case 'k':
+			fmt.Fprintf(&sb, "%2d", t.Hour())
+		case 'l':
+			h := t.Hour() % 12
+			if h == 0 {
+				h = 12
+			}
+			fmt.Fprintf(&sb, "%2d", h)
+		case 'r':
+			h := t.Hour() % 12
+			if h == 0 {
+				h = 12
+			}
+			ampm := "AM"
+			if t.Hour() >= 12 {
+				ampm = "PM"
+			}
+			fmt.Fprintf(&sb, "%02d:%02d:%02d %s", h, t.Minute(), t.Second(), ampm)
+		case 'U':
+			fmt.Fprintf(&sb, "%02d", (t.YearDay()-1+7-int(t.Weekday()))/7)
+		case 'W':
+			fmt.Fprintf(&sb, "%02d", (t.YearDay()-1+7-(int(t.Weekday())+6)%7)/7)
+		case 'x':
+			fmt.Fprintf(&sb, "%02d/%02d/%02d", int(t.Month()), t.Day(), t.Year()%100)
+		case 'X':
+			fmt.Fprintf(&sb, "%02d:%02d:%02d", t.Hour(), t.Minute(), t.Second())
 		case 's':
 			sb.WriteString(strconv.FormatInt(t.Unix(), 10))
 		case 'u':
