@@ -18,7 +18,8 @@ import (
 // jq and through jvqq, on testdata/corpus.jsonl, and requires the same
 // output and the same exit code. jvqq runs three ways: one worker, several
 // workers with tiny chunks (so every few lines is its own chunk), and the
-// default. It needs jq 1.7 or later on PATH; without it the test is skipped.
+// default. It needs jq 1.7.x on PATH (jvqq follows jq 1.7.1); without it
+// the test is skipped. CI installs jq 1.7.1.
 //
 // Lines starting with "~" are features jvqq doesn't support: it must refuse
 // them with a compile error (exit 3) rather than run them differently.
@@ -34,8 +35,8 @@ func jqVersion(t *testing.T) string {
 	if m == nil {
 		t.Skipf("unrecognized jq version %q", v)
 	}
-	if n, _ := strconv.Atoi(m[1]); n < 7 {
-		t.Skipf("jq 1.7 or later is needed, found %s", v)
+	if n, _ := strconv.Atoi(m[1]); n != 7 {
+		t.Skipf("jq 1.7.x is needed, found %s", v)
 	}
 	return v
 }

@@ -1,0 +1,87 @@
+name: bench
+
+# Times jvqq against jq, jaq, gojq and qj on a GitHub-hosted runner, on 1 GiB
+# of generated JSON Lines logs (test/bench/gen.go), with scripts/bench.py:
+# reformat, select, a nested field, a smaller object, count, count by and
+# sum by. Every output is checked against jq's. It runs when the code that
+# reads or evaluates changes, or by hand, and takes about an hour.
+#
+# The results go to the bench-results branch, in github-ubuntu-latest/,
+# with the commit they measured. scripts/record.sh copies them into
+# test/results/github/ on main, so the numbers quoted in the README come
+# from the repository.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - cmd/jvqq/**
+      - internal/**
+      - test/bench/**
+      - scripts/bench.py
+      - .github/workflows/bench.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench
+  cancel-in-progress: true
+
+env:
+  JQ: "1.7.1"
+  JAQ: "3.1.1"
+  GOJQ: "0.12.17"
+  QJ: "0.3.0"
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.x"
+      - name: Build jvqq and the tools to compare
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          t="$RUNNER_TEMP/tools"
+          mkdir -p "$t"
+          go build -trimpath -ldflags '-s -w' -o "$t/jvqq" ./cmd/jvqq
+          go build -o "$t/peak" test/bench/peak.go
+          curl -fsSL -o "$t/jq" "https://github.com/jqlang/jq/releases/download/jq-$JQ/jq-linux-amd64"
+          curl -fsSL -o "$t/jaq" "https://github.com/01mf02/jaq/releases/download/v$JAQ/jaq-x86_64-unknown-linux-gnu"
+          curl -fsSL "https://github.com/itchyny/gojq/releases/download/v$GOJQ/gojq_v${GOJQ}_linux_amd64.tar.gz" | tar -xz -C "$RUNNER_TEMP"
+          cp "$RUNNER_TEMP/gojq_v${GOJQ}_linux_amd64/gojq" "$t/gojq"
+          curl -fsSL "https://github.com/6/qj/releases/download/v$QJ/qj-x86_64-unknown-linux-gnu.tar.gz" | tar -xz -C "$t"
+          chmod +x "$t"/*
+          for x in jvqq jq jaq gojq qj; do "$t/$x" --version; done
+      - name: Make the data
+        run: go run test/bench/gen.go -mb 1024 -out "$RUNNER_TEMP/logs.jsonl"
+      - name: Record
+        run: python3 scripts/bench.py --tools "$RUNNER_TEMP/tools" --data "$RUNNER_TEMP/logs.jsonl" --out "$RUNNER_TEMP/bench" 2> >(tee "$RUNNER_TEMP/bench-progress.txt" >&2)
+        shell: bash
+      - name: Job summary
+        if: always()
+        run: cat "$RUNNER_TEMP/bench/bench.md" >> "$GITHUB_STEP_SUMMARY" || tail -50 "$RUNNER_TEMP/bench-progress.txt"
+      - name: Publish to the bench-results branch
+        run: |
+          sha=$(git rev-parse HEAD)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch --depth 1 origin bench-results 2> /dev/null; then
+            git switch -c bench-results FETCH_HEAD
+          else
+            git switch --orphan bench-results
+          fi
+          mkdir -p github-ubuntu-latest
+          cp "$RUNNER_TEMP/bench/bench.json" "$RUNNER_TEMP/bench/bench.md" "$RUNNER_TEMP/bench-progress.txt" github-ubuntu-latest/
+          echo "$sha" > github-ubuntu-latest/COMMIT
+          git add github-ubuntu-latest
+          git commit -q -m "bench on ubuntu-latest for ${sha:0:10}"
+          git push origin bench-results

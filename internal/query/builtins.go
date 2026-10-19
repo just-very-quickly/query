@@ -842,6 +842,13 @@ func init() {
 			}
 			return math.IsInf(n.F, 0), nil
 		}),
+		"isfinite/0": simple(func(in any) (any, error) {
+			n, ok := jv.AsNumber(in)
+			if !ok {
+				return false, nil
+			}
+			return !math.IsInf(n.F, 0), nil // nan counts as finite, as in jq
+		}),
 		"isnan/0": simple(func(in any) (any, error) {
 			n, ok := jv.AsNumber(in)
 			if !ok {

@@ -1,0 +1,80 @@
+name: test
+
+# Every push to main and every pull request: formatting, vet, and the full
+# test suite on Linux, macOS and Windows: the engine tests (order, line
+# endings, long lines, malformed lines, compressed input, aggregations,
+# exit codes) everywhere, and on Linux and macOS the differential test
+# against jq 1.7.1 (every filter in cmd/jvqq/testdata/filters.txt, three
+# ways of splitting the input). Then the race detector on Linux, the release
+# plan's cases, and the smoke check on a binary built the way the release
+# builds it. A passing run on main starts the release workflow, which
+# releases a raised version.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.x"
+      # The differential test runs on Linux and macOS: jvqq's answers don't
+      # depend on the system, and jq on Windows writes CRLF line ends.
+      - name: Install jq 1.7.1
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) asset=jq-linux-amd64 ;;
+            Linux-ARM64) asset=jq-linux-arm64 ;;
+            macOS-ARM64) asset=jq-macos-arm64 ;;
+            macOS-X64) asset=jq-macos-amd64 ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/jq"
+          curl -fsSL -o "$RUNNER_TEMP/jq/jq" "https://github.com/jqlang/jq/releases/download/jq-1.7.1/$asset"
+          chmod +x "$RUNNER_TEMP/jq/jq"
+          echo "$RUNNER_TEMP/jq" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/jq/jq" --version
+      - if: runner.os != 'Windows'
+        run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - name: Tests
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! go test -count=1 -v ./... 2>&1 | tee test-output.txt | grep -E -- '^(--- |ok|FAIL|PASS)'; then
+            # Show the failures as annotations, so they can be read without
+            # access to the raw log.
+            grep -E -- '--- FAIL|_test\.go:[0-9]+:|panic:' test-output.txt | head -30 | while IFS= read -r line; do
+              echo "::error title=go test ${RUNNER_OS}::${line}"
+            done
+            exit 1
+          fi
+          if [ "$RUNNER_OS" != Windows ] && grep -q -- '--- SKIP: TestDifferential' test-output.txt; then
+            echo "::error title=go test ${RUNNER_OS}::the differential test was skipped"
+            exit 1
+          fi
+      - if: runner.os == 'Linux'
+        run: go test -race -count=1 ./...
+      - run: python3 -B -m unittest discover -s scripts -p '*_test.py'
+        if: runner.os != 'Windows'
+      - name: Smoke check on a release-style build
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p bin
+          go build -trimpath -ldflags '-s -w' -o "bin/jvqq$( [ "$RUNNER_OS" = Windows ] && echo .exe )" ./cmd/jvqq
+          if [ "$RUNNER_OS" = Windows ]; then python scripts/smoke.py bin; else python3 scripts/smoke.py bin; fi

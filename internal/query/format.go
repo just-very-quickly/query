@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/just-very-quickly/query/internal/jv"
@@ -440,8 +441,15 @@ func subBuiltin(global bool, arity int) builtinFn {
 }
 
 // reCache holds compiled patterns: most filters use one or two constant
-// patterns, and regexp.Regexp is safe for concurrent use.
-var reCache sync.Map
+// patterns, and regexp.Regexp is safe for concurrent use. Patterns made
+// from the input could be different on every line, so after reCacheMax of
+// them the rest are compiled each time instead of kept.
+var (
+	reCache     sync.Map
+	reCacheSize atomic.Int64
+)
+
+const reCacheMax = 1000
 
 func compileCached(pattern, flags string) (*jre, error) {
 	key := flags + "\x00" + pattern
@@ -452,6 +460,8 @@ func compileCached(pattern, flags string) (*jre, error) {
 	if err != nil {
 		return nil, err
 	}
-	reCache.Store(key, r)
+	if reCacheSize.Add(1) <= reCacheMax {
+		reCache.Store(key, r)
+	}
 	return r, nil
 }

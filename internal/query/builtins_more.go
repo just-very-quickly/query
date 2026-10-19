@@ -46,6 +46,7 @@ func addMoreBuiltins(m map[string]builtinFn) {
 		"gamma":  func(x float64) float64 { v, _ := math.Lgamma(x); return v },
 		"lgamma": func(x float64) float64 { v, _ := math.Lgamma(x); return v },
 		"j0":     math.J0, "j1": math.J1, "y0": math.Y0, "y1": math.Y1,
+		"erf": math.Erf, "erfc": math.Erfc,
 		"rint": math.RoundToEven, "nearbyint": math.RoundToEven, "pow10": func(x float64) float64 { return math.Pow(10, x) },
 		"significand": func(x float64) float64 {
 			if x == 0 || math.IsInf(x, 0) || math.IsNaN(x) {
@@ -96,14 +97,18 @@ func addMoreBuiltins(m map[string]builtinFn) {
 		v, s := math.Lgamma(x)
 		return v, float64(s)
 	})
+	// As jq 1.7.1 defines it: if . < 0 then -. else . end. Strings, arrays
+	// and objects sort above 0 and come back as they are; null and booleans
+	// sort below it and can't be negated.
 	m["abs/0"] = simple(func(in any) (any, error) {
-		if n, ok := jv.AsNumber(in); ok {
-			if n.F < 0 {
-				return jv.Num(-n.F), nil
-			}
+		if jv.Compare(in, jv.Num(0)) >= 0 {
 			return in, nil
 		}
-		return nil, errorf("%s has no absolute value", describe(in))
+		n, ok := jv.AsNumber(in)
+		if !ok {
+			return nil, errorf("%s cannot be negated", describe(in))
+		}
+		return jv.Num(-n.F), nil
 	})
 	m["finites/0"] = func(*compiler, []node) (filter, error) {
 		return func(_ *env, in any, out emitFn) error {

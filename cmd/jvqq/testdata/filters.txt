@@ -470,3 +470,10 @@
 -nc	first(inputs | select(.level? == "warn"))
 -c	if .level == "warn" then halt else .level end
 -nc	[inputs] | map(.ms? // 0) | add
+-nc	[nan, infinite, -infinite, 1, "a", null] | map(isfinite)
+-nc	[0, 0.5, -1, 3] | map(erf), ([0, 0.5, 3] | map(erfc))
+-nc	"a" | try erf catch .
+-c	[.ms?] | map(numbers | isfinite)
+-nc	[-5, -1.50, 0, -0, 2.0, 1e1000, -1e1000, "a", [1], {"a":-1}] | map(abs)
+-nc	[null, true, false, nan, -nan][] | try abs catch .
+-c	.ms? | abs
