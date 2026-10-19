@@ -68,6 +68,15 @@ func loadCases(t *testing.T) []diffCase {
 			continue
 		}
 		c := diffCase{line: n}
+		// "glibc " marks cases where jq's answer comes from the C library
+		// (math functions, strftime, the range of gmtime): jvqq follows
+		// glibc, so they are compared on Linux only.
+		if strings.HasPrefix(line, "glibc ") {
+			if runtime.GOOS != "linux" {
+				continue
+			}
+			line = line[len("glibc "):]
+		}
 		if strings.HasPrefix(line, "~") {
 			c.unsupported = true
 			line = line[1:]

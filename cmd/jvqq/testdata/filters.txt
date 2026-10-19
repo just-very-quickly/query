@@ -1,6 +1,7 @@
 # Each line is a jq filter, run by both jq and jvqq on corpus.jsonl.
 # Options go before a tab: -c<TAB>.a  Lines starting with # are comments.
-# -n cases run on null input instead.
+# -n cases run on null input instead. Lines starting with "glibc " depend on
+# the C library jq uses and are compared on Linux only.
 .
 -c	.
 -c	.level
@@ -471,7 +472,7 @@
 -c	if .level == "warn" then halt else .level end
 -nc	[inputs] | map(.ms? // 0) | add
 -nc	[nan, infinite, -infinite, 1, "a", null] | map(isfinite)
--nc	[0, 0.5, -1, 3] | map(erf), ([0, 0.5, 3] | map(erfc))
+glibc -nc	[0, 0.5, -1, 3] | map(erf), ([0, 0.5, 3] | map(erfc))
 -nc	"a" | try erf catch .
 -c	[.ms?] | map(numbers | isfinite)
 -nc	[-5, -1.50, 0, -0, 2.0, 1e1000, -1e1000, "a", [1], {"a":-1}] | map(abs)
@@ -480,7 +481,7 @@
 -nc --arg x 1 --argjson y {"a":[2]}	$ARGS
 -c --arg level error	select(.level == $level) | $ARGS.named
 ~-nc	. as $x ?// [$x] | $x
--nc	[1425599507, 0, 1704067199, 1704067200, 1735603200, 951782400] | map(gmtime | strftime("%c|%C|%g|%G|%k|%l|%r|%U|%V|%W|%x|%X|%D|%e|%j|%u|%w"))
+glibc -nc	[1425599507, 0, 1704067199, 1704067200, 1735603200, 951782400] | map(gmtime | strftime("%c|%C|%g|%G|%k|%l|%r|%U|%V|%W|%x|%X|%D|%e|%j|%u|%w"))
 # fixed after the v0.1.0 review
 -c	select(.level == "warn") | halt_error
 -c	select(.ms? == 120) | halt_error(3)
@@ -520,8 +521,8 @@
 -nc	"nan1", "[NaN12, -nan1]" | fromjson
 -nc	"a\udfff", "\udc00𐀀", "\udfffb" | [., length]
 -nc	1, "x", [1], [1,2,3,4,5,"x"] | try mktime catch .
--nc	1e20, 1e17, 6.7e16, -6.7e16, 6.8e16, -6.8e16, nan | try todate catch .
--nc	1e20 | try gmtime catch ., try strftime("%Y") catch .
+glibc -nc	1e20, 1e17, 6.7e16, -6.7e16, 6.8e16, -6.8e16, nan | try todate catch .
+glibc -nc	1e20 | try gmtime catch ., try strftime("%Y") catch .
 -nc	reduce range(257) as $i (0; [.]), (reduce range(257) as $i (0; {a:.}) | tojson | length)
 -n	reduce range(257) as $i (0; [.])
 -nc	try ("€€€€€€" + 1) catch ., try path("abcdefghijklmnopqrstuvwxyz01") catch ., try path("abcdefghijklmnopqrstuvwxyz0") catch .
