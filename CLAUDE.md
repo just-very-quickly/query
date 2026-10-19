@@ -9,7 +9,7 @@ tool, under the same organization as jvq (`just-very-quickly/jvq`, JVQ.net).
 jvqq's website is JVQ.net (repo `photozeitgeist/jvq.net`, Hugo, launch
 theme), shared with jvq since October 2026: the home page speaks for both,
 jvqq has the Query page (/query/), a section on Quick start, Download and
-Reference, and posts tagged `jvqq`. Every page and post about jvqq carries
+Reference, and posts tagged `jvqq`. The Query page and every jvqq post carry
 the note that it is independent of jq, not a fork and not affiliated with
 the jq project. Site numbers come from test/results only; update the Query
 page and the home figures when a new recording changes them.
