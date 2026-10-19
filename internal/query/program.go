@@ -113,13 +113,20 @@ type Runner struct {
 	base  *env
 	env   *env
 	state *aggState
+	file  *fileName
 }
+
+// fileName is the input being read, for input_filename. It is shared by
+// reference so that a filter reading with input or inputs sees the file
+// change while it runs, as in jq.
+type fileName struct{ v any }
 
 // NewRunner makes a runner; debug and stderr messages go to sink (nil for
 // standard error).
 func (p *Program) NewRunner(sink DebugSink) *Runner {
-	base := p.rootEnv(sink)
-	r := &Runner{p: p, base: base, env: base}
+	f := &fileName{}
+	base := p.rootEnv(sink).bind(fileVar, f)
+	r := &Runner{p: p, base: base, env: base, file: f}
 	if p.agg != nil {
 		r.state = newAggState(p.agg)
 	}
@@ -145,7 +152,7 @@ func (p *Program) UsesInputs() bool { return p.usesInputs }
 
 // SetFile names the input being read, for input_filename.
 func (r *Runner) SetFile(name string) {
-	r.env = r.base.bind(fileVar, name)
+	r.file.v = name
 }
 
 // Run runs the filter on one input. With an aggregation, the values that
@@ -171,7 +178,11 @@ func (r *Runner) Finish(out func(any) error) error {
 	if r.p.agg == nil {
 		return nil
 	}
-	e := r.env.bind(aggVar, r.state.results())
+	res, err := r.state.results()
+	if err != nil {
+		return err
+	}
+	e := r.env.bind(aggVar, res)
 	return r.p.agg.stage(e, nil, func(v any) error {
 		if r.p.post == nil {
 			return out(v)

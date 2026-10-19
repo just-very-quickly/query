@@ -78,18 +78,22 @@ func (r *run) read(inputs []Input, chunks chan<- *chunk) int {
 		}
 		rc, err := openInput(in)
 		if err != nil {
-			fmt.Fprintf(r.cfg.Stderr, "%s: error: %v\n", r.name, err)
 			code = ExitUsage
+			if r.sendErr(chunks, &seq, err, false) != nil {
+				return code
+			}
 			continue
 		}
-		err = r.readOne(in.Name, rc, chunks, &seq)
+		err = r.readOne(in.Name, rc, chunks, &seq, in.Path == "")
 		rc.Close()
 		if err == errStopped {
 			return code
 		}
 		if err != nil {
-			fmt.Fprintf(r.cfg.Stderr, "%s: error: %v\n", r.name, err)
 			code = ExitUsage
+			if r.sendErr(chunks, &seq, err, false) != nil {
+				return code
+			}
 		}
 	}
 	return code
@@ -107,12 +111,15 @@ func (r *run) readMapped(in Input, chunks chan<- *chunk, seq *int) (done bool, e
 	defer debug.SetPanicOnFault(old)
 	defer func() {
 		if e := faulted(recover(), in.Name); e != nil {
-			r.fault.Do(func() { fmt.Fprintf(r.cfg.Stderr, "%s: error: %v\n", r.name, e) })
-			r.halt()
+			r.sendErr(chunks, seq, e, true)
 			done, err = true, errFault
 		}
 	}()
-	head := data[:min(len(data), r.cfg.ChunkSize)]
+	start := 0
+	if hasBOM(data) {
+		start = 3 // as jq, a byte order mark at the start is skipped
+	}
+	head := data[start:min(len(data), start+r.cfg.ChunkSize)]
 	gz := len(head) >= 2 && head[0] == 0x1f && head[1] == 0x8b
 	zst := len(head) >= 4 && head[0] == 0x28 && head[1] == 0xb5 && head[2] == 0x2f && head[3] == 0xfd
 	if gz || zst || !r.cfg.RawInput && isDocument(head) {
@@ -122,7 +129,7 @@ func (r *run) readMapped(in Input, chunks chan<- *chunk, seq *int) (done bool, e
 	m := &mapping{unmap: unmap}
 	defer m.seal()
 	line := 1
-	for pos := 0; pos < len(data); {
+	for pos := start; pos < len(data); {
 		end := min(pos+r.cfg.ChunkSize, len(data))
 		if end < len(data) {
 			if nl := bytes.LastIndexByte(data[pos:end], '\n'); nl >= 0 {
@@ -157,7 +164,11 @@ func (r *run) send(chunks chan<- *chunk, c *chunk) error {
 }
 
 // fill reads into b until it is full or the input ends.
-func fill(rd io.Reader, b []byte) (int, bool, error) {
+// fill reads into b until it is full or the input ends. With stream set
+// (standard input, which may be a pipe that a program writes to slowly),
+// it also returns as soon as a read comes back short with a whole line in
+// b, so lines are handled as they arrive instead of when 1 MiB has.
+func fill(rd io.Reader, b []byte, stream bool) (int, bool, error) {
 	n := 0
 	for n < len(b) {
 		k, err := rd.Read(b[n:])
@@ -168,11 +179,23 @@ func fill(rd io.Reader, b []byte) (int, bool, error) {
 		if err != nil {
 			return n, false, err
 		}
+		if stream && k > 0 && n < len(b) && bytes.IndexByte(b[n-k:n], '\n') >= 0 {
+			return n, false, nil
+		}
 	}
 	return n, false, nil
 }
 
-func (r *run) readOne(name string, rd io.Reader, chunks chan<- *chunk, seq *int) error {
+func hasBOM(b []byte) bool { return len(b) >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF }
+
+// sendErr reports a read error in its place in the output.
+func (r *run) sendErr(chunks chan<- *chunk, seq *int, err error, fatal bool) error {
+	c := &chunk{seq: *seq, readErr: err, fatal: fatal}
+	*seq++
+	return r.send(chunks, c)
+}
+
+func (r *run) readOne(name string, rd io.Reader, chunks chan<- *chunk, seq *int, stream bool) error {
 	size := r.cfg.ChunkSize
 	bp := r.getBuf(size)
 	buf := *bp
@@ -182,15 +205,31 @@ func (r *run) readOne(name string, rd io.Reader, chunks chan<- *chunk, seq *int)
 	document := false
 	scanned := 0 // document mode: complete values end here
 	for {
-		k, eof, err := fill(rd, buf[n:])
+		k, eof, err := fill(rd, buf[n:], stream)
 		n += k
 		if err != nil {
-			r.putBuf(bp)
+			// A broken compressed stream, say: what came before the error
+			// is still used, as jq does.
+			if n > 0 && !document {
+				c := &chunk{seq: *seq, file: name, line: line, data: buf[:n], buf: bp}
+				*seq++
+				if err := r.send(chunks, c); err != nil {
+					return err
+				}
+			} else {
+				r.putBuf(bp)
+			}
 			return fmt.Errorf("%s: %v", name, err)
 		}
-		if first && !r.cfg.RawInput {
+		if first {
 			first = false
-			document = isDocument(buf[:n])
+			if hasBOM(buf[:n]) {
+				copy(buf, buf[3:n])
+				n -= 3
+			}
+			if !r.cfg.RawInput {
+				document = isDocument(buf[:n])
+			}
 		}
 		var cut int // bytes that form the next chunk
 		if document {

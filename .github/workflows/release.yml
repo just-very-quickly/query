@@ -84,13 +84,15 @@ jobs:
             GOOS=$os GOARCH=$arch go build -trimpath -ldflags '-s -w' -o "$pkg/$exe" ./cmd/jvqq
             file "$pkg/$exe"
             cp LICENSE NOTICE THIRD_PARTY_LICENSES.md README.md "$pkg/"
+            # Named members (not ./jvqq), so `tar -xz jvqq` picks the binary.
             if [ "$os" = windows ]; then
-              (cd "$pkg" && zip -q "../dist/jvqq_${os}_${arch}.zip" *)
+              (cd "$pkg" && zip -q "../dist/jvqq_${os}_${arch}.zip" "$exe" LICENSE NOTICE THIRD_PARTY_LICENSES.md README.md)
             else
-              tar -czf "dist/jvqq_${os}_${arch}.tar.gz" -C "$pkg" .
+              tar -czf "dist/jvqq_${os}_${arch}.tar.gz" -C "$pkg" "$exe" LICENSE NOTICE THIRD_PARTY_LICENSES.md README.md
             fi
           done
           file pkg_linux_amd64/jvqq | grep -q 'statically linked'
+          file pkg_linux_arm64/jvqq | grep -q 'statically linked'
           file pkg_linux_arm64/jvqq | grep -q 'ARM aarch64'
           file pkg_darwin_amd64/jvqq | grep -q 'x86_64'
           file pkg_darwin_arm64/jvqq | grep -q 'arm64'

@@ -21,6 +21,7 @@ reduce (which reads input in order, on one core).
 """
 import argparse
 import hashlib
+import itertools
 import json
 import math
 import os
@@ -118,10 +119,12 @@ def values(path):
 def same_stream(path, ref):
     """Whether two outputs hold the same values line by line."""
     with open(path) as a, open(ref) as b:
-        for x, y in zip(a, b):
+        for x, y in itertools.zip_longest(a, b):
+            if x is None or y is None:
+                return False  # one has more lines
             if x != y and not close(json.loads(x), json.loads(y)):
                 return False
-        return a.readline() == "" and b.readline() == ""
+        return True
 
 
 def compare(kind, path, ref_path, ref_digest):
@@ -252,6 +255,26 @@ def count_lines(path):
         return sum(chunk.count(b"\n") for chunk in iter(lambda: f.read(1 << 24), b""))
 
 
+def run_counting(peak_bin, cmd):
+    """Runs cmd, counting the lines it writes without storing them (the
+    output can be as large as the input). Returns (seconds, peak MiB,
+    exit, stderr, lines)."""
+    p = subprocess.Popen([peak_bin] + cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    lines = 0
+    while True:
+        b = p.stdout.read(1 << 22)
+        if not b:
+            break
+        lines += b.count(b"\n")
+    err = p.stderr.read().decode(errors="replace").splitlines()
+    p.wait()
+    wall, kib = 0.0, 0
+    if err and err[-1].startswith("peak: "):
+        _, w, k = err.pop().split()
+        wall, kib = float(w), int(k)
+    return wall, kib / 1024, p.returncode, "\n".join(err), lines
+
+
 def big_file(path, jvqq, peak_bin, scratch):
     """jvqq alone on a much larger file, once each: the answers are checked
     against a line count made here, and the peak memory is recorded."""
@@ -263,7 +286,11 @@ def big_file(path, jvqq, peak_bin, scratch):
                     ("count by", ["-c", "count_by(.level)"]),
                     ("select", ["-c", 'select(.level == "error") | .ts']),
                     ("reformat", ["-c", "."])]:
-        wall, rss, code, err = run_once(peak_bin, [jvqq] + a + [path], out)
+        if name in ("select", "reformat"):
+            wall, rss, code, err, n_out = run_counting(peak_bin, [jvqq] + a + [path])
+            open(out, "w").close()
+        else:
+            wall, rss, code, err = run_once(peak_bin, [jvqq] + a + [path], out)
         row = {"workload": name, "command": ["jvqq"] + a + ["FILE"], "seconds": round(wall, 3),
                "peak_mib": round(rss, 1), "exit": code}
         if name == "count":
@@ -273,9 +300,9 @@ def big_file(path, jvqq, peak_bin, scratch):
             with open(out) as f:
                 row["check"] = "counts add up to the lines" if code == 0 and sum(json.load(f).values()) == lines else "WRONG COUNTS"
         elif name == "reformat":
-            row["check"] = "one output line per input line" if code == 0 and count_lines(out) == lines else "WRONG LINES"
+            row["check"] = "one output line per input line" if code == 0 and n_out == lines else "WRONG LINES"
         else:
-            row["check"] = f"{count_lines(out)} lines out" if code == 0 else f"exit {code}: {err[:200]}"
+            row["check"] = f"{n_out} lines out" if code == 0 else f"exit {code}: {err[:200]}"
         print(f"bench: big {name:9} {row['seconds']:8.3f}s {rss:7.0f} MiB  {row['check']}", file=sys.stderr)
         runs.append(row)
         os.remove(out)

@@ -14,7 +14,6 @@ import (
 	"io"
 	"runtime"
 	"runtime/debug"
-	"strings"
 	"sync"
 
 	"github.com/just-very-quickly/query/internal/jv"
@@ -69,6 +68,10 @@ type chunk struct {
 	buf      *[]byte  // the pooled buffer data lives in, returned after use
 	mapping  *mapping // or the mapped file it points into
 	document bool     // values may span lines; already checked by the reader
+	// readErr, with no data, is an input that couldn't be read, reported
+	// in its place in the output; fatal ones stop the run.
+	readErr error
+	fatal   bool
 }
 
 // mapping is a file mapped into memory, unmapped once the reader is done
@@ -161,6 +164,7 @@ type result struct {
 	chunk    *chunk
 	fatal    error            // --strict: stop here
 	halt     *query.HaltError // halt or halt_error: stop here
+	readErr  error            // the chunk was a read error to report here
 }
 
 type run struct {
@@ -226,7 +230,7 @@ func Run(cfg Config, inputs []Input) int {
 		return r.sequential(out, inputs)
 	}
 	if cfg.NullInput {
-		return r.runOnce(out, nil)
+		return r.runOnce(out, nil, nil)
 	}
 	if cfg.Slurp && cfg.RawInput {
 		var all []byte
@@ -246,7 +250,11 @@ func Run(cfg Config, inputs []Input) int {
 			}
 			all = append(all, b...)
 		}
-		if c := r.runOnce(out, string(all)); c != ExitOK {
+		file := ""
+		if len(inputs) > 0 {
+			file = inputs[len(inputs)-1].Name
+		}
+		if c := r.runOnce(out, string(all), &file); c != ExitOK {
 			return c
 		}
 		return code
@@ -254,9 +262,24 @@ func Run(cfg Config, inputs []Input) int {
 	return r.parallel(out, inputs)
 }
 
-// runOnce runs the program on one value (for -n, -s and -Rs).
-func (r *run) runOnce(out *bufio.Writer, in any) int {
-	runner := r.cfg.Program.NewRunner(nil)
+// stderrSink writes debug and stderr messages after the output so far.
+type stderrSink struct {
+	out *bufio.Writer
+	w   io.Writer
+}
+
+func (s stderrSink) WriteString(m string) (int, error) {
+	s.out.Flush()
+	return io.WriteString(s.w, m)
+}
+
+// runOnce runs the program on one value (for -n, -s and -Rs). file, if
+// set, is the input_filename: the last file read, as in jq.
+func (r *run) runOnce(out *bufio.Writer, in any, file *string) int {
+	runner := r.cfg.Program.NewRunner(stderrSink{out, r.cfg.Stderr})
+	if file != nil {
+		runner.SetFile(*file)
+	}
 	var buf []byte
 	outputs := 0
 	lastTrue := false
@@ -371,6 +394,7 @@ func (r *run) parallel(out *bufio.Writer, inputs []Input) int {
 	firstBad := ""
 	lastTrue := false
 	var slurped []any
+	var lastFile *string // for input_filename after -s
 	var fatal error
 	var halted *query.HaltError
 	for res := range results {
@@ -386,6 +410,14 @@ func (r *run) parallel(out *bufio.Writer, inputs []Input) int {
 				out.Write(p.out)
 				if cfg.Unbuffered {
 					out.Flush()
+				}
+				if p.chunk.file != "" {
+					f := p.chunk.file
+					lastFile = &f
+				}
+				if p.readErr != nil {
+					out.Flush()
+					fmt.Fprintf(cfg.Stderr, "%s: error: %v\n", r.name, p.readErr)
 				}
 				if len(p.errs) > 0 {
 					out.Flush()
@@ -455,7 +487,7 @@ func (r *run) parallel(out *bufio.Writer, inputs []Input) int {
 		if slurped == nil {
 			slurped = []any{}
 		}
-		finalCode = r.mergeCode(finalCode, r.runOnce(out, slurped))
+		finalCode = r.mergeCode(finalCode, r.runOnce(out, slurped, lastFile))
 		if code != ExitOK {
 			return code
 		}
@@ -500,6 +532,15 @@ func (r *run) mergeCode(a, b int) int {
 // work runs the filter on every value in a chunk.
 func (r *run) work(c *chunk, runner *query.Runner, debug *bytes.Buffer) (res *result) {
 	res = &result{seq: c.seq, chunk: c}
+	if c.readErr != nil {
+		if c.fatal {
+			res.fatal = c.readErr
+		} else {
+			res.readErr = c.readErr
+		}
+		res.out = r.getOut()
+		return res
+	}
 	defer func() {
 		if err := faulted(recover(), c.file); err != nil {
 			res.fatal = err
@@ -555,9 +596,11 @@ func (r *run) work(c *chunk, runner *query.Runner, debug *bytes.Buffer) (res *re
 	if c.document {
 		// The reader checked these values; values may span lines.
 		i := jv.SkipSpace(data, 0)
+		ln, counted := line, 0 // line of data[counted]
 		for i < len(data) {
 			end, _ := jv.ValidDoc(data, i, doc)
-			ln := line + bytes.Count(data[:i], []byte{'\n'})
+			ln += bytes.Count(data[counted:i], []byte{'\n'})
+			counted = i
 			process(doc, ln)
 			if res.halt != nil {
 				break
@@ -589,6 +632,15 @@ func (r *run) work(c *chunk, runner *query.Runner, debug *bytes.Buffer) (res *re
 			for i < len(l) {
 				end, err := jv.ValidDoc(l, i, doc)
 				if err != nil {
+					// jq also reads numbers like 01 and nan: the slow path
+					if vals, ok := jv.DecodeLenient(l[i:]); ok {
+						for _, v := range vals {
+							if process(v, line); res.halt != nil {
+								break
+							}
+						}
+						break
+					}
 					col := err.(*jv.SyntaxError).Off + 1
 					if cfg.Strict {
 						res.fatal = fmt.Errorf("%s:%d: %s at column %d (stopped, --strict)", c.file, line, err.Error(), col)
@@ -618,11 +670,7 @@ func (r *run) work(c *chunk, runner *query.Runner, debug *bytes.Buffer) (res *re
 }
 
 func validString(b []byte) string {
-	s := string(b)
-	if !isValidUTF8(b) {
-		s = strings.ToValidUTF8(s, "�")
-	}
-	return s
+	return jv.ToValidUTF8(string(b))
 }
 
 // decodeDetached decodes a raw value fully (for -s, where values outlive

@@ -26,12 +26,14 @@ type valueIter struct {
 	data   []byte // what is left of the current chunk
 	line   int    // line of data's first byte
 	pend   []byte // the rest of the current line (line mode)
+	queued []any  // values read by the lenient decoder, still to give
 	where  string // location of the last value returned
 	file   string
 	bad    int
 	first  string
 	fatal  error
 	runner *query.Runner
+	out    *bufio.Writer // flushed before a read error is reported
 }
 
 func (it *valueIter) release() {
@@ -56,6 +58,11 @@ func (it *valueIter) Next() (v any, ok bool, err error) {
 		if it.fatal != nil {
 			return nil, false, nil
 		}
+		if len(it.queued) > 0 {
+			v := it.queued[0]
+			it.queued = it.queued[1:]
+			return v, true, nil
+		}
 		if len(it.pend) > 0 {
 			l := it.pend
 			i := jv.SkipSpace(l, 0)
@@ -66,6 +73,13 @@ func (it *valueIter) Next() (v any, ok bool, err error) {
 			}
 			end, err := jv.Valid(l, i)
 			if err != nil {
+				if vals, ok := jv.DecodeLenient(l[i:]); ok {
+					it.where = fmt.Sprintf("%s:%d", it.file, it.line)
+					it.queued = vals
+					it.pend = nil
+					it.line++
+					continue
+				}
 				col := err.(*jv.SyntaxError).Off + 1
 				msg := fmt.Sprintf("%s:%d: %s at column %d", it.file, it.line, err.Error(), col)
 				if it.r.cfg.Strict {
@@ -94,6 +108,17 @@ func (it *valueIter) Next() (v any, ok bool, err error) {
 			c, ok := <-it.chunks
 			if !ok {
 				return nil, false, nil
+			}
+			if c.readErr != nil {
+				it.cur = c
+				it.release()
+				if c.fatal {
+					it.fatal = c.readErr
+					return nil, false, nil
+				}
+				it.out.Flush()
+				fmt.Fprintf(it.r.cfg.Stderr, "%s: error: %v\n", it.r.name, c.readErr)
+				continue
 			}
 			it.cur, it.data, it.line, it.file = c, c.data, c.line, c.file
 			it.runner.SetFile(c.file)
@@ -143,7 +168,7 @@ func (r *run) sequential(out *bufio.Writer, inputs []Input) int {
 		readErr <- r.read(inputs, chunks)
 		close(chunks)
 	}()
-	it := &valueIter{r: r, chunks: chunks}
+	it := &valueIter{r: r, chunks: chunks, out: out}
 	debug := &bytes.Buffer{}
 	runner := cfg.Program.NewRunner(debug)
 	runner.SetInputs(it)

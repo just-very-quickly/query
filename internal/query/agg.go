@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"math/big"
 	"slices"
 	"strings"
 
@@ -164,12 +165,15 @@ func (s *aggState) merge(o *aggState) {
 	}
 }
 
-func (s *aggState) results() []any {
+func (s *aggState) results() ([]any, error) {
 	out := make([]any, len(s.accs))
 	for i, a := range s.accs {
 		out[i] = a.result()
+		if g, ok := a.(*groupAcc); ok && g.err != nil {
+			return nil, g.err
+		}
 	}
-	return out
+	return out, nil
 }
 
 type countAcc struct{ n int64 }
@@ -236,8 +240,12 @@ type countByAcc struct {
 
 // preferKey picks between two keys jq considers equal, so the one shown
 // doesn't depend on input order: numbers like 1 and 1.0 print differently.
+// It keeps the one whose compact JSON is shorter, then smaller byte by
+// byte. Strings and the other scalars print one way only.
 func preferKey(cur, cand any) any {
-	if jv.KindOf(cur) != jv.KNumber {
+	switch jv.KindOf(cur) {
+	case jv.KNumber, jv.KArray, jv.KObject:
+	default:
 		return cur
 	}
 	if a, ok := jv.RawOf(cur); ok {
@@ -245,7 +253,8 @@ func preferKey(cur, cand any) any {
 			return cur // the same text: nothing to choose
 		}
 	}
-	if toString(cand) < toString(cur) {
+	x, y := toString(cand), toString(cur)
+	if len(x) < len(y) || len(x) == len(y) && x < y {
 		return jv.Detach(cand)
 	}
 	return cur
@@ -296,9 +305,22 @@ func compareKeys(a, b any) int {
 
 // result is an object of counts, the most frequent first.
 func (a *countByAcc) result() any {
+	// Keys that differ as values but not as strings (1 and "1") share an
+	// entry in the object: merge them first, so the order is by the
+	// counts that are shown. The entry sorts by the smaller of its keys.
+	byName := map[string]int{}
 	es := make([]countEntry, 0, len(a.m))
 	for _, e := range a.m {
 		e.key = jv.Norm(e.key) // decode raw keys once, not per comparison
+		k := toString(e.key)
+		if i, ok := byName[k]; ok {
+			es[i].n += e.n
+			if jv.Compare(e.key, es[i].key) < 0 {
+				es[i].key = e.key
+			}
+			continue
+		}
+		byName[k] = len(es)
 		es = append(es, e)
 	}
 	slices.SortFunc(es, func(x, y countEntry) int {
@@ -312,12 +334,7 @@ func (a *countByAcc) result() any {
 	})
 	o := jv.NewObject(len(es))
 	for _, e := range es {
-		k := toString(e.key)
-		if prev, ok := o.Get(k); ok {
-			o.Set(k, jv.Num(prev.(jv.Number).F+float64(e.n)))
-			continue
-		}
-		o.Set(k, jv.Num(float64(e.n)))
+		o.Set(toString(e.key), jv.Num(float64(e.n)))
 	}
 	return o
 }
@@ -422,6 +439,7 @@ type groupAcc struct {
 	m    map[string]*groupEntry
 	env  *env
 	buf  []byte
+	err  error // the first error computing a group's row
 }
 
 func (a *groupAcc) feed(e *env, k, v any) error {
@@ -466,8 +484,13 @@ func (a *groupAcc) result() any {
 	slices.SortFunc(es, func(x, y *groupEntry) int { return compareKeys(x.key, y.key) })
 	rows := []any{}
 	for _, g := range es {
-		e := a.env.bind(aggVar, g.state.results())
-		err := a.spec.stage(e, nil, func(v any) error {
+		res, err := g.state.results()
+		if err != nil {
+			a.err = err
+			return nil
+		}
+		e := a.env.bind(aggVar, res)
+		err = a.spec.stage(e, nil, func(v any) error {
 			row := jv.NewObject(4)
 			row.Set("key", g.key)
 			if o, ok := jv.Norm(v).(*jv.Object); ok {
@@ -481,10 +504,8 @@ func (a *groupAcc) result() any {
 			return nil
 		})
 		if err != nil {
-			row := jv.NewObject(2)
-			row.Set("key", g.key)
-			row.Set("error", err.Error())
-			rows = append(rows, row)
+			a.err = err
+			return nil
 		}
 	}
 	return rows
@@ -494,11 +515,23 @@ func (a *groupAcc) result() any {
 // (Python's math.fsum) does: a list of non-overlapping partial sums. Its
 // rounded total is the same whatever order the values were added in, so
 // sums and averages don't depend on how the input was split between workers.
+//
+// Values near the top of the float64 range could overflow a partial sum,
+// so they are kept apart, exactly, in a big.Float, and joined with the
+// partials at the end.
 type exactSum struct {
 	partials []float64
-	special  float64 // inf or nan seen
+	huge     *big.Float // the sum of values of magnitude 2^970 and more
+	special  float64    // inf or nan seen
 	hasSpec  bool
 }
+
+// hugeLimit: below it, even 2^50 values can be added without overflow.
+const hugeLimit = 0x1p970
+
+// bigPrec holds any sum of float64 values exactly (2^-1074 to 2^1024, with
+// room for carries).
+const bigPrec = 2200
 
 func (s *exactSum) add(x float64) {
 	if math.IsInf(x, 0) || math.IsNaN(x) {
@@ -507,6 +540,13 @@ func (s *exactSum) add(x float64) {
 		} else {
 			s.special, s.hasSpec = x, true
 		}
+		return
+	}
+	if math.Abs(x) >= hugeLimit {
+		if s.huge == nil {
+			s.huge = new(big.Float).SetPrec(bigPrec)
+		}
+		s.huge.Add(s.huge, new(big.Float).SetPrec(bigPrec).SetFloat64(x))
 		return
 	}
 	i := 0
@@ -529,6 +569,12 @@ func (s *exactSum) merge(o *exactSum) {
 	for _, p := range o.partials {
 		s.add(p)
 	}
+	if o.huge != nil {
+		if s.huge == nil {
+			s.huge = new(big.Float).SetPrec(bigPrec)
+		}
+		s.huge.Add(s.huge, o.huge)
+	}
 	if o.hasSpec {
 		s.add(o.special)
 	}
@@ -538,6 +584,14 @@ func (s *exactSum) merge(o *exactSum) {
 func (s *exactSum) total() float64 {
 	if s.hasSpec {
 		return s.special
+	}
+	if s.huge != nil {
+		t := new(big.Float).SetPrec(bigPrec).Set(s.huge)
+		for _, p := range s.partials {
+			t.Add(t, new(big.Float).SetPrec(bigPrec).SetFloat64(p))
+		}
+		f, _ := t.Float64() // rounds to nearest; past the range it is ±Inf, as jq's add gives
+		return f
 	}
 	n := len(s.partials)
 	if n == 0 {

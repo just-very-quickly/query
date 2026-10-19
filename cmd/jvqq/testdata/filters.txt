@@ -481,3 +481,29 @@
 -c --arg level error	select(.level == $level) | $ARGS.named
 ~-nc	. as $x ?// [$x] | $x
 -nc	[1425599507, 0, 1704067199, 1704067200, 1735603200, 951782400] | map(gmtime | strftime("%c|%C|%g|%G|%k|%l|%r|%U|%V|%W|%x|%X|%D|%e|%j|%u|%w"))
+# fixed after the v0.1.0 review
+-c	select(.level == "warn") | halt_error
+-c	select(.ms? == 120) | halt_error(3)
+-nc	[" 1", "\t2", " 1.50 ", "1e2"] | map(tonumber)
+-nc	["abcdefghij", "abcdefghijklmnopq", [1,2,3,4,5,6], {"abcd":"efgh"}] | map(try (. - 1) catch .)
+-nc	"xab" | [match("(z)?b").captures[]]
+-nc	"a" | match("(?<n>x)?"), capture("(?<n>x)?")
+-nc	[nan == nan, nan < nan, nan > nan, [nan] == [nan], ([nan]|index(nan)), ([nan, nan] | group_by(.) | length)]
+-nc	[[] | indices([])], [[1,2] | indices([])]
+-nc	{"a":[1,[2]],"b":3} | flatten, flatten(1)
+-nc	["abc", {"a":1}, 5, true] | map(try reverse catch .), ("" | reverse), ({} | reverse), (null | reverse), (0 | reverse)
+-nc	-1e1000 % 3, (1e1000 % 3), -2 * 3 + 1, (try (1 % 0) catch .)
+-nc	"YW=Jj", "YQ", "/w==" | @base64d
+-nc	@base64d "\("YQ==")", @base64 "x\("a")y"
+-nc	["Y", "Y*JjZ"][] | try @base64d catch .
+-nc	[{"a":{"a":null}} | path(recurse(.a?; . != null))]
+-nc	"2015-03-05T23:51:47.123Z", "2015-03-05T23:51:47Z" | try fromdateiso8601 catch .
+-nc	-86400.5, 1.5, -1.5 | gmtime, todate
+-nc	"nan", "[01, .5, 1., +1, 1.e3, NaN, -inf]" | fromjson
+-nc	["a",[1]], [[1]], ["a",{"b":1}] | try join(",") catch .
+-nc	1, {"a":1} | try ascii_upcase catch ., try ascii_downcase catch ., try utf8bytelength catch .
+-nc	"a" | try test([1]) catch ., try test(1) catch ., try match(1) catch ., try test("a"; 1) catch ., try sub(1; "b") catch ., try sub("a"; 1) catch .
+-nc	[1] | try setpath([0,"x"]; 1) catch ., try delpaths([["x"]]) catch .
+-nc	{"a":1} | try delpaths([[0]]) catch ., try delpaths([[null]]) catch .
+-nc	1, "s" | try delpaths([[0]]) catch .
+-c	[.tags?[]?] | flatten

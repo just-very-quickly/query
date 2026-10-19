@@ -36,7 +36,7 @@ and `--` ends the options.
 | `--args` | the arguments after the filter are strings in `$ARGS.positional`, not files |
 | `--jsonargs` | the same, parsed as JSON |
 | `-f file`, `--from-file file` | read the filter from the file; every other argument is an input file |
-| `--unbuffered` | write the output as each chunk of input is done, instead of in large blocks |
+| `--unbuffered` | write the output as soon as each piece of input is done, instead of in large blocks |
 | `-M`, `--monochrome-output` | accepted; jvqq never colors its output |
 | `-h`, `--help` | show the help |
 | `-V`, `--version` | show the version |
@@ -63,7 +63,19 @@ with exit code 2.
 **JSON Lines.** By default each line holds one JSON value. Lines may end in
 `\n` or `\r\n`, blank lines are skipped, and the last line doesn't need a
 newline. A line may hold several values separated by spaces (`1 2 3`), as jq
-allows.
+allows. A byte order mark at the start of a file is skipped.
+
+**What counts as JSON.** As in jq: numbers may also be written `01`, `.5`,
+`1.`, `+1` or `1.e3` (they print as jq prints them: `1`, `0.5`, `1`, `1`,
+`1E+3`), `nan`, `NaN` and `-nan` read as NaN (printed `null`), `inf` and
+`Infinity` in any case as infinity (printed as the largest double), and
+nesting is limited to 256 levels, where an object counts as two. Lines
+using the extra forms take a slower path; nothing else changes.
+
+**Standard input** is handled as it arrives: lines from a pipe that a
+program writes slowly (`tail -f app.jsonl | jvqq ...`) are processed when
+they come, without waiting for a full chunk. Add `--unbuffered` to have the
+output written out right away too.
 
 **Other JSON.** If the start of the input holds a value that spans lines,
 such as pretty-printed JSON, jvqq reads the whole input value by value
@@ -112,7 +124,9 @@ Values are written the way jq 1.7.1 writes them.
 - Strings use jq's escapes: `\"`, `\\`, `\n`, `\t`, `\r`, `\b`, `\f`, and
   `\u00xx` (lowercase) for other control characters and DEL. `/` and
   non-ASCII characters are written as they are. Invalid UTF-8 in input
-  strings becomes U+FFFD.
+  strings becomes U+FFFD by jq's rules: one replacement for a bad byte, for
+  a sequence cut short, or for a whole overlong, surrogate or out-of-range
+  sequence.
 - Objects keep their key order; a key given twice keeps its first position
   and its last value.
 - Pretty output indents by 2 spaces, `--indent n` spaces or a tab. Empty
@@ -130,16 +144,20 @@ jvqq: error (at app.jsonl:17): Cannot index array with string "level"
 ```
 
 The location is the file and line of the input. The message after the colon
-is jq's. An error raised with `error(value)` where the value isn't a string
+is jq's, apart from the few noted under "Compared with jq" in the README. An error raised with `error(value)` where the value isn't a string
 is written as `jvqq: error (at ...) (not a string): <json>`.
 
 `halt` stops with exit code 0; `halt_error` writes its input to standard
-error (a string as it is, anything else as JSON with a newline) and stops
-with exit code 5, or the code given. Output from inputs before the halting
+error (a string as it is, `null` as nothing, anything else as JSON with a
+newline) and stops with exit code 5, or the code given. Output from inputs before the halting
 one is written; nothing after it.
 
 `debug` and `stderr` messages go to standard error, after the output of the
-same chunk of input.
+same chunk of input. `stderr` writes a string as it is and anything else as
+compact JSON, with no newline, as jq 1.7.1 does.
+
+A file that can't be read is reported in its place: after the output of the
+files before it, before the output of the files after it.
 
 ## Exit codes
 
@@ -197,7 +215,14 @@ addition. When values jq considers equal print differently (`1` and `1.0`),
 run.
 
 **Errors.** A filter error in `A` is reported for that input and the run
-goes on; at the end, the result is printed and the exit code is 5.
+goes on; at the end, the result is printed and the exit code is 5. An error
+in `B` (in any group's row of a `group_by`, say) is reported as
+`error (at end of input)`, nothing is printed for `B`, and the exit code is
+5.
+
+Remember that `B` runs on `null`: `if .a > 1 then count else 0 end` tests
+`null > 1`, and `.a as $v | count + $v` binds `$v` to `null`. Work on each
+input goes in `A`, before the aggregation step.
 
 **Memory.** Each worker keeps one entry per distinct value of `f`, and the
 entries are merged at the end. Grouping by a value with millions of distinct
@@ -245,17 +270,22 @@ the math functions `acos`, `acosh`, `asin`, `asinh`, `atan`, `atan2`,
 `exp`, `exp10`, `exp2`, `expm1`, `fabs`, `fdim`, `floor`, `fma`, `fmax`,
 `fmin`, `fmod`, `frexp`, `gamma`, `hypot`, `j0`, `j1`, `jn`, `ldexp`,
 `lgamma`, `lgamma_r`, `log`, `log10`, `log1p`, `log2`, `logb`, `modf`,
-`nearbyint`, `nextafter`, `nexttoward`, `pow`, `pow10`, `remainder`, `rint`,
+`nearbyint`, `nextafter`, `nexttoward`, `pow`, `remainder`, `rint`,
 `round`, `scalb`, `scalbln`, `significand`, `sin`, `sinh`, `sqrt`, `tan`,
 `tanh`, `tgamma`, `trunc`, `y0`, `y1`, `yn`.
 
 Regular expressions (`test`, `match`, `capture`, `scan`, `split/2`,
 `splits`, `sub`, `gsub`) use Go's RE2 engine with jq's flags `g`, `i`, `x`,
-`n`, `s`, `l` and `p`. Named groups `(?<name>...)` work as in jq. jq uses
-Oniguruma, and two things differ: RE2 has no backreferences or lookaround (a
-pattern using them is an error), and with the `n` flag an empty match is
-dropped, where Oniguruma looks for a non-empty match at the same place
-(`"aaa" | [match("a*?"; "gn")]` gives no matches in jvqq, three in jq).
+`n`, `s`, `l` and `p`. Named groups `(?<name>...)` work as in jq, and match
+objects have jq's shape, key order included. jq uses Oniguruma, and some
+things differ: RE2 has no backreferences or lookaround (a pattern using them
+is an error, and syntax errors are worded differently); with the `n` flag
+an empty match is dropped, where Oniguruma looks for a non-empty match at
+the same place (`"aaa" | [match("a*?"; "gn")]` gives no matches in jvqq,
+three in jq); and with `g`, jq also reports an empty match right after a
+non-empty one, and steps through multi-byte characters a byte at a time
+after an empty match, so patterns that can match nothing (`a?`, `x*`) can
+give more matches in jq.
 
 `input_filename` gives the name of the file being read, as it was given on
 the command line, and `"<stdin>"` for standard input, as jq 1.7.1 does.
@@ -272,17 +302,20 @@ These are refused with a compile error (exit code 3) that names the feature:
 - `input_line_number`, `$__prog_args`
 - `{$__loc__}` as an object key (`$__loc__` itself works)
 
-The math functions use Go's math library and can differ from jq (which uses
-the C library) in the last digit, for example `erfc(-1)`.
+The math functions use Go's math library and many can differ from jq (which
+uses the C library) in the last digit: `log`, `cbrt`, `tan`, `exp10`,
+`erfc`, the Bessel and gamma functions, among others. `pow10` isn't there,
+as in jq 1.7.1 builds.
 
 Dates use Go's time package, in the C locale. `strftime` supports `%a %A %b
 %B %c %C %d %D %e %F %g %G %h %H %I %j %k %l %m %M %n %p %r %R %s %S %t %T
 %u %U %V %w %W %x %X %y %Y %z %Z %%`; any other directive is written as it
 is. `strptime` reads `%Y %m %d %e %H %I %M %S %y %j %b %B %h %a %A %p %z
 %Z %s %T %F %n %t %%`, matches other characters literally (a space matches
-any run of spaces), and fails with a message on any other directive. For `gmtime` results, `%Z`
-is `UTC`; jq 1.7.1 writes the local time zone's name there, so the two agree
-only when TZ is UTC.
+any run of spaces), and fails with a message on any other directive. Times
+are truncated toward zero to whole seconds, as in jq. For `gmtime` results,
+`%Z` is `UTC` and `%s` counts from the epoch in UTC; jq 1.7.1 uses the local
+time zone for both, so the two agree only when TZ is UTC.
 
 ## Performance notes
 

@@ -157,11 +157,9 @@ func compareNumbers(a, b Number) int {
 	case a.F == b.F:
 		return 0
 	}
-	// NaN: jq sorts it below every number
-	switch {
-	case a.F != a.F && b.F != b.F:
-		return 0
-	case a.F != a.F:
+	// NaN: jq sorts it below every number, and below another NaN too, so
+	// nan == nan is false and nan < nan is true.
+	if a.F != a.F {
 		return -1
 	}
 	return 1

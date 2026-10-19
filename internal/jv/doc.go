@@ -102,7 +102,7 @@ func ValidDoc(b []byte, i int, d *Doc) (int, error) {
 			}
 		}
 		if !plain {
-			if i, err = valid(b, i, 1); err != nil {
+			if i, err = valid(b, i, 2); err != nil { // inside the top-level object
 				return i, err
 			}
 		}

@@ -333,10 +333,12 @@ func (p *parser) multiplicative() (node, error) {
 	return l, nil
 }
 
+// unary: as in jq's grammar, a leading minus takes the whole product after
+// it, so -1e1000 % 3 is -(1e1000 % 3).
 func (p *parser) unary() (node, error) {
 	if p.isOp("-") {
 		p.i++
-		x, err := p.unary()
+		x, err := p.multiplicative()
 		if err != nil {
 			return nil, err
 		}
@@ -813,6 +815,10 @@ func (p *parser) stringNode(parts []strPart, format string) (node, error) {
 		}
 		if t := sub.peek(); t.kind != tEOF {
 			return nil, sub.errorf(t, "unexpected %s in string interpolation", describeTok(t))
+		}
+		if _, ok := n.(nLiteral); ok {
+			// "\("x")" is still formatted: keep it apart from the text
+			n = nPipe{nIdentity{}, n}
 		}
 		out = append(out, n)
 	}

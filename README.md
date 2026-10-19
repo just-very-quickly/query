@@ -145,13 +145,17 @@ memory, also as in jq.
 
 ## Compared with jq
 
-For the filters jvqq supports, the output is jq 1.7.1's, byte for byte:
+For the filters jvqq supports, standard output is jq 1.7.1's, byte for byte:
 number formatting (literals keep their digits, `1.000` stays `1.000`, `1e2`
-prints as `1E+2`), string escapes, key order, the text of error messages, and exit codes.
-The test suite checks this by running every filter in
-[cmd/jvqq/testdata/filters.txt](cmd/jvqq/testdata/filters.txt) through jq and
-through jvqq, with the input split three different ways
-([test/results/tests.txt](test/results/tests.txt) has the latest run).
+prints as `1E+2`), string escapes, invalid UTF-8 replaced the way jq does
+it, key order, and the text of most error messages as `try ... catch .`
+sees them. Exit codes are jq's too. jvqq also reads what jq reads beyond
+strict JSON: numbers like `01` and `.5`, `nan` and `Infinity`, and a byte
+order mark at the start. The test suite checks all this by running every
+filter in [cmd/jvqq/testdata/filters.txt](cmd/jvqq/testdata/filters.txt)
+through jq and through jvqq, from standard input and from a file, with the
+input split several ways ([test/results/tests.txt](test/results/tests.txt)
+has the latest run).
 
 The differences:
 
@@ -161,16 +165,20 @@ The differences:
 - **Not supported.** Function definitions (`def`), `label` and `break`,
   destructuring (`. as [$a, $b]`, `?//`), modules (`import`, `include`),
   `input_line_number`, `$__prog_args`, `get_search_list` and the other module
-  builtins, and the options `--stream`, `--seq`, `--raw-output0`, `-a`, `-C`
-  and `-L`. jvqq refuses these with a clear message and exit code 3 rather
-  than doing something different.
+  builtins: jvqq refuses these with a message and exit code 3 rather than
+  doing something different. The options `--stream`, `--seq`,
+  `--raw-output0`, `-a`, `-C` and `-L` are refused with exit code 2.
 - **Regular expressions** use Go's RE2 engine instead of Oniguruma: no
-  backreferences or lookaround, and the `n` flag drops empty matches rather
-  than looking for a longer one.
-- **Math functions** use Go's math library; a few, such as `erfc`, can
-  differ from jq in the last digit. In `strftime`, `%Z` of a `gmtime` time is
-  `UTC`, where jq writes the local zone's name.
-- Messages start with `jvqq:` instead of `jq:`.
+  backreferences or lookaround, and empty matches with the `g` or `n` flag
+  can come out differently (`"ab" | [match("a?"; "g")]` finds two matches in
+  jvqq, three in jq). Regex syntax errors are worded differently.
+- **Math functions** use Go's math library instead of the C library, so
+  many of them (`log`, `cbrt`, `tan`, `exp10`, the Bessel and gamma
+  functions) can differ from jq in the last digit. In `strftime`, `%Z` of a
+  `gmtime` time is `UTC`, where jq writes the local zone's name.
+- **Messages on standard error** start with `jvqq:` instead of `jq:`.
+  Messages about invalid JSON text (from `fromjson`, `tonumber` or bad
+  lines) and compile errors are worded differently from jq's.
 
 ## Performance
 

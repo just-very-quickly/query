@@ -104,8 +104,21 @@ func formatter(name string) (func(any) (any, error), error) {
 	case "base64":
 		return func(v any) (any, error) { return base64.StdEncoding.EncodeToString([]byte(toString(v))), nil }, nil
 	case "base64d":
+		// As jq: decoding stops at the first "=", and a last lone character
+		// (6 bits, no whole byte) is an error.
 		return func(v any) (any, error) {
-			s := strings.TrimRight(toString(v), "=")
+			s := toString(v)
+			if i := strings.IndexByte(s, '='); i >= 0 {
+				s = s[:i]
+			}
+			for i := 0; i < len(s); i++ {
+				if strings.IndexByte(base64Alphabet, s[i]) < 0 {
+					return nil, errorf("%s is not valid base64 data", describe(v))
+				}
+			}
+			if len(s)%4 == 1 {
+				return nil, errorf("%s trailing base64 byte found", describe(v))
+			}
 			b, err := base64.RawStdEncoding.DecodeString(s)
 			if err != nil {
 				return nil, errorf("%s is not valid base64 data", describe(v))
@@ -117,11 +130,10 @@ func formatter(name string) (func(any) (any, error), error) {
 	return func(any) (any, error) { return nil, errorf("%s is not a valid format", name) }, nil
 }
 
+const base64Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
 func validUTF8(b []byte) string {
-	if utf8.Valid(b) {
-		return string(b)
-	}
-	return strings.ToValidUTF8(string(b), "�")
+	return jv.ToValidUTF8(string(b))
 }
 
 var tsvEscaper = strings.NewReplacer(`\`, `\\`, "\t", `\t`, "\n", `\n`, "\r", `\r`)
@@ -250,11 +262,23 @@ func (j *jre) matchObject(s string, m []int, ro *runeOffsets) *jv.Object {
 	for g := 1; g < len(names); g++ {
 		c := jv.NewObject(4)
 		a, b := m[2*g], m[2*g+1]
-		if a < 0 {
-			c.Set("offset", jv.Num(-1))
+		// jq's shapes, key order included: an empty match gives every group
+		// an empty string at the match; an empty or missing group puts
+		// "string" before "length".
+		switch {
+		case m[0] == m[1]:
+			c.Set("offset", jv.Num(float64(start)))
+			c.Set("string", "")
 			c.Set("length", jv.Num(0))
+		case a < 0:
+			c.Set("offset", jv.Num(-1))
 			c.Set("string", nil)
-		} else {
+			c.Set("length", jv.Num(0))
+		case a == b:
+			c.Set("offset", jv.Num(float64(ro.at(a))))
+			c.Set("string", "")
+			c.Set("length", jv.Num(0))
+		default:
 			cs := ro.at(a)
 			ce := ro.at(b)
 			c.Set("offset", jv.Num(float64(cs)))
@@ -340,49 +364,46 @@ func captureObject(m any) any {
 func regexBuiltin(f func(re *jre, in string, out emitFn) error, arity int) builtinFn {
 	return withFilters(func(args []filter) filter {
 		return func(e *env, in any, out emitFn) error {
-			if jv.KindOf(in) != jv.KString {
-				return errorf("%s cannot be matched, as it is not a string", describe(in))
-			}
-			s := jv.Str(in)
-			runFlags := func(re any) error {
+			// The checks come in jq's order: the input, the regex, the flags.
+			run := func(re, fl any) error {
+				if jv.KindOf(in) != jv.KString {
+					return errorf("%s cannot be matched, as it is not a string", describe(in))
+				}
 				if jv.KindOf(re) != jv.KString {
-					// test(["re", "flags"]) form
-					if a, ok := jv.Norm(re).([]any); ok && len(a) > 0 && arity == 1 {
-						flags := ""
-						if len(a) > 1 && jv.KindOf(a[1]) == jv.KString {
-							flags = jv.Str(a[1])
-						}
-						r, err := compileCached(jv.Str(a[0]), flags)
-						if err != nil {
-							return err
-						}
-						return f(r, s, out)
-					}
-					return errorf("%s cannot be matched, as it is not a string", describe(re))
+					return errorf("%s is not a string", describe(re))
 				}
-				if arity == 1 {
-					r, err := compileCached(jv.Str(re), "")
-					if err != nil {
-						return err
+				flags := ""
+				if fl != nil {
+					if jv.KindOf(fl) != jv.KString {
+						return errorf("%s is not a string", describe(fl))
 					}
-					return f(r, s, out)
+					flags = jv.Str(fl)
 				}
-				return args[1](e, in, func(fl any) error {
-					flags := ""
-					if fl != nil {
-						if jv.KindOf(fl) != jv.KString {
-							return errorf("%s is not a string", describe(fl))
-						}
-						flags = jv.Str(fl)
-					}
-					r, err := compileCached(jv.Str(re), flags)
-					if err != nil {
-						return err
-					}
-					return f(r, s, out)
-				})
+				r, err := compileCached(jv.Str(re), flags)
+				if err != nil {
+					return err
+				}
+				return f(r, jv.Str(in), out)
 			}
-			return args[0](e, in, runFlags)
+			return args[0](e, in, func(re any) error {
+				if arity == 2 {
+					return args[1](e, in, func(fl any) error { return run(re, fl) })
+				}
+				// With one argument it is a regex, or [regex] or [regex, flags].
+				switch jv.KindOf(re) {
+				case jv.KString:
+					return run(re, nil)
+				case jv.KArray:
+					a := jv.Norm(re).([]any)
+					if len(a) > 1 {
+						return run(a[0], a[1])
+					}
+					if len(a) > 0 {
+						return run(a[0], nil)
+					}
+				}
+				return errorf("%s not a string or array", jv.TypeName(re))
+			})
 		}
 	})
 }
@@ -400,7 +421,7 @@ func subBuiltin(global bool, arity int) builtinFn {
 			}
 			return args[0](e, in, func(re any) error {
 				if jv.KindOf(re) != jv.KString {
-					return errorf("%s cannot be matched, as it is not a string", describe(re))
+					return errorf("%s is not a string", describe(re))
 				}
 				return flagsF(e, in, func(fl any) error {
 					flags := ""
@@ -428,7 +449,7 @@ func subBuiltin(global bool, arity int) builtinFn {
 						m := ms[i]
 						return args[1](e, caps[i], func(rep any) error {
 							if jv.KindOf(rep) != jv.KString {
-								return errorf("%s cannot be added to a string", describe(rep))
+								return errorf("%s and %s cannot be added", describe(acc+s[prev:m[0]]), describe(rep))
 							}
 							return build(i+1, m[1], acc+s[prev:m[0]]+jv.Str(rep))
 						})

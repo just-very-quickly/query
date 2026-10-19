@@ -10,8 +10,17 @@ import (
 	"unicode/utf8"
 )
 
-// MaxDepth is the deepest nesting accepted, as in jq.
-const MaxDepth = 10000
+// MaxDepth is the deepest nesting accepted, counted as jq 1.7.1 counts it:
+// an array is one level and an object two, so 256 arrays or 128 objects.
+const MaxDepth = 256
+
+// depthOf is how much an open bracket adds to the nesting depth.
+func depthOf(c byte) int {
+	if c == '{' {
+		return 2
+	}
+	return 1
+}
 
 // SyntaxError is invalid JSON at byte offset Off. EOF is set when the text
 // ended inside a value, so more input could complete it.
@@ -62,6 +71,7 @@ func valid(b []byte, i int, depth int) (int, error) {
 	var stackBuf [64]byte
 	stack := stackBuf[:0]
 	n := len(b)
+	w := depth // the depth so far, weighted as depthOf
 value:
 	for i < n && isWS(b[i]) {
 		i++
@@ -71,7 +81,7 @@ value:
 	}
 	switch c := b[i]; c {
 	case '{', '[':
-		if depth+len(stack) >= MaxDepth {
+		if w+depthOf(c) > MaxDepth {
 			return i, synErr(i, "Exceeds depth limit for parsing")
 		}
 		i++
@@ -84,6 +94,7 @@ value:
 				goto after
 			}
 			stack = append(stack, '{')
+			w += 2
 			goto key
 		}
 		if i < n && b[i] == ']' {
@@ -91,6 +102,7 @@ value:
 			goto after
 		}
 		stack = append(stack, '[')
+		w++
 		goto value
 	case '"':
 		i++
@@ -206,6 +218,7 @@ after:
 	}
 	if top := stack[len(stack)-1]; top == '{' && b[i] == '}' || top == '[' && b[i] == ']' {
 		i++
+		w -= depthOf(top)
 		stack = stack[:len(stack)-1]
 		goto after
 	}
@@ -393,6 +406,9 @@ func Decode(b []byte) (any, error) {
 	i := SkipSpace(b, 0)
 	end, err := Valid(b, i)
 	if err != nil {
+		if vals, ok := DecodeLenient(b); ok && len(vals) == 1 {
+			return vals[0], nil
+		}
 		return nil, err
 	}
 	if j := SkipSpace(b, end); j != len(b) {
@@ -409,6 +425,9 @@ func DecodeAll(b []byte) ([]any, error) {
 	for i := SkipSpace(b, 0); i < len(b); i = SkipSpace(b, i) {
 		end, err := Valid(b, i)
 		if err != nil {
+			if vals, ok := DecodeLenient(b[i:]); ok {
+				return append(out, vals...), nil
+			}
 			return nil, err
 		}
 		v, _ := decode(b, i)
@@ -517,11 +536,16 @@ func decodeString(b []byte, i int) (string, int) {
 
 func unescape(b []byte, i int) (string, int) {
 	out := make([]byte, 0, 32)
+	raw8 := false // bytes from 0x80 up were copied unchecked
 	i++
 	for {
 		c := b[i]
 		switch {
 		case c == '"':
+			if raw8 {
+				// jq checks the UTF-8 of the decoded string as a whole
+				return ToValidUTF8(string(out)), i + 1
+			}
 			return string(out), i + 1
 		case c == '\\':
 			switch b[i+1] {
@@ -553,14 +577,9 @@ func unescape(b []byte, i int) (string, int) {
 			out = append(out, c)
 			i++
 		default:
-			r, n := utf8.DecodeRune(b[i:])
-			if r == utf8.RuneError && n <= 1 {
-				out = append(out, "�"...)
-				i++
-			} else {
-				out = append(out, b[i:i+n]...)
-				i += n
-			}
+			out = append(out, c)
+			raw8 = true
+			i++
 		}
 	}
 }

@@ -58,6 +58,8 @@ jvqq's own options:
       --strict           stop at the first line that isn't valid JSON
                          (by default such lines are skipped and counted)
       --workers n        number of workers (default: one per CPU)
+      --chunk-size bytes how much input a worker takes at a time
+                         (default 1048576)
   -h, --help             show this help
   -V, --version          show the version
 

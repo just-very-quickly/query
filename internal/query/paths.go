@@ -310,6 +310,31 @@ func (c *compiler) pathCall(x nCall) (pathFilter, bool, error) {
 			return step(e, cur, func(ch pathItem) error { return rec(e, ch, out) })
 		}
 		return rec, true, nil
+	case x.name == "recurse" && len(x.args) == 2:
+		// def recurse(f; cond): def r: ., (f | select(cond) | r); r;
+		step, err := c.compilePath(x.args[0])
+		if err != nil {
+			return nil, true, err
+		}
+		cond, err := c.compile(x.args[1])
+		if err != nil {
+			return nil, true, err
+		}
+		var rec func(e *env, cur pathItem, out func(pathItem) error) error
+		rec = func(e *env, cur pathItem, out func(pathItem) error) error {
+			if err := out(cur); err != nil {
+				return err
+			}
+			return step(e, cur, func(ch pathItem) error {
+				return cond(e, ch.val, func(ok any) error {
+					if jv.Truthy(ok) {
+						return rec(e, ch, out)
+					}
+					return nil
+				})
+			})
+		}
+		return rec, true, nil
 	case x.name == "getpath" && len(x.args) == 1:
 		pf, err := c.compile(x.args[0])
 		if err != nil {
@@ -487,7 +512,7 @@ func setPath(root any, p []any, val any) (any, error) {
 		case *jv.Object:
 			o = c.Copy()
 		default:
-			return nil, errorf("Cannot index %s with \"%s\"", jv.TypeName(cur), kk)
+			return nil, errorf("Cannot index %s with string \"%s\"", jv.TypeName(cur), kk)
 		}
 		child, _ := o.Get(kk)
 		nv, err := setPath(child, p[1:], val)
@@ -585,49 +610,50 @@ func delPath(root any, p []any) (any, error) {
 	}
 	k := jv.Norm(p[0])
 	if len(p) == 1 {
-		switch kk := k.(type) {
-		case string:
-			o, ok := cur.(*jv.Object)
+		// jq's messages: by the container, then by the key's kind.
+		switch c := cur.(type) {
+		case *jv.Object:
+			kk, ok := k.(string)
 			if !ok {
-				return nil, errorf("Cannot delete field at object index of %s", jv.TypeName(cur))
+				return nil, errorf("Cannot delete %s field of object", jv.TypeName(k))
 			}
-			o = o.Copy()
+			o := c.Copy()
 			o.Delete(kk)
 			return o, nil
-		case jv.Number:
-			a, ok := cur.([]any)
-			if !ok {
-				return nil, errorf("Cannot delete field at index of %s", jv.TypeName(cur))
-			}
-			i := int(math.Floor(kk.F))
-			if i < 0 {
-				i += len(a)
+		case []any:
+			a := c
+			switch kk := k.(type) {
+			case jv.Number:
+				i := int(math.Floor(kk.F))
 				if i < 0 {
-					return nil, errorf("Out of bounds negative array index")
+					i += len(a)
+					if i < 0 {
+						return nil, errorf("Out of bounds negative array index")
+					}
 				}
+				if i >= len(a) {
+					return a, nil
+				}
+				out := make([]any, 0, len(a)-1)
+				out = append(out, a[:i]...)
+				return append(out, a[i+1:]...), nil
+			case *jv.Object:
+				from, okF := kk.Get("start")
+				to, okT := kk.Get("end")
+				if !okF || !okT {
+					return nil, errorf("Array/string slice indices must be integers")
+				}
+				s, e, err := sliceBounds(len(a), from, to)
+				if err != nil {
+					return nil, err
+				}
+				out := make([]any, 0, len(a)-(e-s))
+				out = append(out, a[:s]...)
+				return append(out, a[e:]...), nil
 			}
-			if i >= len(a) {
-				return a, nil
-			}
-			out := make([]any, 0, len(a)-1)
-			out = append(out, a[:i]...)
-			return append(out, a[i+1:]...), nil
-		case *jv.Object:
-			a, ok := cur.([]any)
-			if !ok {
-				return nil, errorf("Cannot delete slice of %s", jv.TypeName(cur))
-			}
-			from, _ := kk.Get("start")
-			to, _ := kk.Get("end")
-			s, e, err := sliceBounds(len(a), from, to)
-			if err != nil {
-				return nil, err
-			}
-			out := make([]any, 0, len(a)-(e-s))
-			out = append(out, a[:s]...)
-			return append(out, a[e:]...), nil
+			return nil, errorf("Cannot delete %s element of array", jv.TypeName(k))
 		}
-		return nil, errorf("Invalid path component")
+		return nil, errorf("Cannot delete fields from %s", jv.TypeName(cur))
 	}
 	child, err := indexValue(cur, k)
 	if err != nil {

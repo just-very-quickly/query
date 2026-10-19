@@ -7,7 +7,6 @@ import (
 	"math"
 	"sort"
 	"strconv"
-	"unicode/utf8"
 )
 
 // Format says how values are written: indented by Indent spaces (2 by
@@ -197,11 +196,11 @@ func AppendString(buf []byte, s string) []byte {
 				i++
 				continue
 			}
-			r, n := utf8.DecodeRuneInString(s[i:])
-			if r == utf8.RuneError && n == 1 {
+			cp, n := utf8Next(s, i)
+			if cp < 0 {
 				buf = append(buf, s[start:i]...)
-				buf = append(buf, "�"...)
-				i++
+				buf = append(buf, replacement...)
+				i += n
 				start = i
 				continue
 			}

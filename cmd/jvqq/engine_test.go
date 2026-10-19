@@ -279,7 +279,7 @@ func TestHalt(t *testing.T) {
 
 func TestInputs(t *testing.T) {
 	// filters that read input themselves run in order
-	check(t, "1\n2\n3\n4\n5\n", "[1,2]\n[3,4]\n", "jvqq: error (at <stdin>:5): No more inputs\n", 5, "-c", "[., input]")
+	check(t, "1\n2\n3\n4\n5\n", "[1,2]\n[3,4]\n", "jvqq: error (at <stdin>:5): break\n", 5, "-c", "[., input]")
 	check(t, "1\n2\n3\n", "6\n", "", 0, "-n", "reduce inputs as $x (0; . + $x)")
 	check(t, "{\"a\":1}\nbad\n{\"a\":2}\n", "[1,2]\n",
 		"jvqq: skipped 1 line that isn't valid JSON (first at <stdin>:2: Invalid literal at column 1)\n", 0, "-nc", "[inputs.a]")
@@ -290,4 +290,83 @@ func TestSlurpAndRaw(t *testing.T) {
 	check(t, "a\nb\r\n\nc", "\"a\"\n\"b\\r\"\n\"\"\n\"c\"\n", "", 0, "-R", ".")
 	check(t, "a\nb\n", "\"a\\nb\\n\"\n", "", 0, "-Rs", ".")
 	check(t, "{\"s\":\"x\"}\n{\"s\":\"y\"}\n", "xy", "", 0, "-j", ".s")
+}
+
+// Cases from the v0.1.0 review.
+
+func TestHaltErrorOnInput(t *testing.T) {
+	var in strings.Builder
+	for i := 0; i < 3000; i++ {
+		fmt.Fprintf(&in, "{\"i\":%d,\"msg\":\"hello %d\"}\n", i, i)
+	}
+	var want strings.Builder
+	for i := 0; i < 5; i++ {
+		fmt.Fprintf(&want, "%d\n", i)
+	}
+	// the value outlives its chunk: it must be copied, from a mapped file too
+	check(t, in.String(), want.String(), "{\"i\":5,\"msg\":\"hello 5\"}\n", 5, `if .i == 5 then halt_error else .i end`)
+	check(t, in.String(), "", "{\"i\":0,\"msg\":\"hello 0\"}\n", 5, "halt_error")
+	check(t, "null\n", "", "", 5, "halt_error")
+}
+
+func TestByteOrderMark(t *testing.T) {
+	check(t, "\xef\xbb\xbf{\"a\":1}\n{\"a\":2}\n", "1\n2\n", "", 0, ".a")
+}
+
+func TestLenientNumbers(t *testing.T) {
+	// jq reads these too
+	check(t, "[01, .5, 1., +1, 1.e3, nan, -Infinity]\n{\"a\":1}\n", "[1,0.5,1,1,1E+3,null,-1.7976931348623157e+308]\n{\"a\":1}\n", "", 0, "-c", ".")
+	check(t, "[0x10]\n", "", "jvqq: skipped 1 line that isn't valid JSON (first at <stdin>:1: Invalid numeric literal at column 2)\n", 0, "-c", ".")
+}
+
+func TestDepthLimit(t *testing.T) {
+	ok := strings.Repeat("[", 256) + strings.Repeat("]", 256) + "\n" + strings.Repeat(`{"a":`, 128) + "1" + strings.Repeat("}", 128) + "\n"
+	check(t, ok, "1\n1\n", "", 0, "length")
+	deep := strings.Repeat(`{"a":`, 129) + "1" + strings.Repeat("}", 129) + "\n"
+	_, errOut, code := jvqq(t, deep, "length")
+	if code != 0 || !strings.Contains(errOut, "Exceeds depth limit") {
+		t.Errorf("129 objects deep: exit %d, stderr %q", code, errOut)
+	}
+}
+
+func TestInvalidUTF8(t *testing.T) {
+	// replaced the way jq does: one U+FFFD per bad sequence
+	check(t, "\"a\xffb\"\n\"\xed\xa0\x80\"\n\"\xf4\x90\x80\x80\"\n\"\xc0\xaf\"\n", "[\"a\uFFFDb\",3]\n[\"\uFFFD\",1]\n[\"\uFFFD\",1]\n[\"\uFFFD\uFFFD\",2]\n", "", 0, "-c", "[., length]")
+}
+
+func TestAggregationKeysStable(t *testing.T) {
+	// equal keys that print differently: the shown one doesn't depend on
+	// which worker saw which first
+	var in strings.Builder
+	in.WriteString("{\"k\":[1.0]}\n")
+	for i := 0; i < 3000; i++ {
+		fmt.Fprintf(&in, "{\"k\":[1],\"pad\":%q}\n", strings.Repeat("x", i%40))
+	}
+	in.WriteString("{\"k\":[1.0]}\n")
+	check(t, in.String(), "[{\"key\":[1],\"value\":3002}]\n[1]\n", "", 0, "-c", "group_by(.k; count), max(.k)")
+	// count_by merges keys with the same name before ordering
+	check(t, "1\n\"1\"\n1\n\"1\"\n\"1\"\n2\n2\n2\n", "{\"1\":5,\"2\":3}\n", "", 0, "-c", "count_by(.)")
+}
+
+func TestAggregationErrors(t *testing.T) {
+	check(t, "{\"a\":1,\"b\":0}\n", "", "jvqq: error (at end of input): number (0) and number (0) cannot be divided because the divisor is zero\n", 5, "-c", "group_by(.a; {x: (sum(.b) / sum(.b))})")
+	check(t, "1e308\n1e308\n-1e308\n", "1e+308\n", "", 0, "sum(.)")
+	check(t, "1e308\n1e308\n", "1.7976931348623157e+308\n", "", 0, "sum(.)")
+}
+
+func TestReadErrorsInOrder(t *testing.T) {
+	a := write(t, "a.jsonl", []byte("1\n2\n"))
+	b := write(t, "b.jsonl", []byte("3\n"))
+	missing := filepath.Join(t.TempDir(), "missing.jsonl")
+	var both bytes.Buffer
+	code := run([]string{".", a, missing, b}, strings.NewReader(""), &both, &both)
+	got := both.String()
+	i, j, k := strings.Index(got, "2\n"), strings.Index(got, "missing.jsonl"), strings.Index(got, "3\n")
+	if code != 2 || i < 0 || j < i || k < j {
+		t.Errorf("exit %d, output %q: the error should come between the files' outputs", code, got)
+	}
+}
+
+func TestToNumberSpaces(t *testing.T) {
+	check(t, "\" 1\"\n\"\\t2\"\n\" 1.50 \"\n", "1\n2\n1.50\n", "", 0, "tonumber")
 }

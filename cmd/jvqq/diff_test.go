@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -26,6 +27,9 @@ import (
 
 func jqVersion(t *testing.T) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("jq on Windows writes CRLF line ends; the test runs on Linux and macOS")
+	}
 	out, err := exec.Command("jq", "--version").Output()
 	if err != nil {
 		t.Skip("jq isn't installed")
@@ -113,11 +117,18 @@ func TestDifferentialAgainstJq(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The last two modes read the corpus as a file (memory-mapped on
+	// Linux) rather than from standard input, and compare with jq reading
+	// the same file.
+	const corpusPath = "testdata/corpus.jsonl"
 	modes := [][]string{
 		{"--workers", "1"},
 		{"--workers", "3", "--chunk-size", "64"},
 		nil,
+		{"--workers", "3", "--chunk-size", "64", corpusPath},
+		{corpusPath},
 	}
+	fileMode := func(m []string) bool { return len(m) > 0 && m[len(m)-1] == corpusPath }
 	failures := 0
 	cases := loadCases(t)
 	refused := 0
@@ -128,7 +139,7 @@ func TestDifferentialAgainstJq(t *testing.T) {
 	}
 	defer func() {
 		if !t.Failed() {
-			t.Logf("%s: %d filters gave the same output and exit code as jq, each split %d ways; %d unsupported features refused", jqVersion(t), len(cases)-refused, len(modes), refused)
+			t.Logf("%s: %d filters gave the same output and exit code as jq, each run %d ways (standard input and file, split differently); %d unsupported features refused", jqVersion(t), len(cases)-refused, len(modes), refused)
 		}
 	}()
 	for _, c := range cases {
@@ -146,8 +157,22 @@ func TestDifferentialAgainstJq(t *testing.T) {
 			continue
 		}
 		want, wantCode := runJq(args, input)
+		wantFile, wantFileCode := runJq(append(append([]string{}, args...), corpusPath), nil)
 		for _, mode := range modes {
-			got, stderr, code := runJvqq(append(append([]string{}, mode...), args...), input)
+			var got, stderr string
+			var code int
+			if fileMode(mode) {
+				a := append(append(append([]string{}, mode[:len(mode)-1]...), args...), corpusPath)
+				got, stderr, code = runJvqq(a, nil)
+				if got != wantFile || code != wantFileCode {
+					failures++
+					t.Errorf("line %d %v %q (mode %v):\n jq    exit %d: %s\n jvqq  exit %d: %s\n stderr: %s",
+						c.line, c.flags, c.filter, mode, wantFileCode, short(wantFile), code, short(got), short(stderr))
+					break
+				}
+				continue
+			}
+			got, stderr, code = runJvqq(append(append([]string{}, mode...), args...), input)
 			if got != want || code != wantCode {
 				failures++
 				t.Errorf("line %d %v %q (mode %v):\n jq    exit %d: %s\n jvqq  exit %d: %s\n stderr: %s",

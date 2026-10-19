@@ -47,7 +47,7 @@ func addMoreBuiltins(m map[string]builtinFn) {
 		"lgamma": func(x float64) float64 { v, _ := math.Lgamma(x); return v },
 		"j0":     math.J0, "j1": math.J1, "y0": math.Y0, "y1": math.Y1,
 		"erf": math.Erf, "erfc": math.Erfc,
-		"rint": math.RoundToEven, "nearbyint": math.RoundToEven, "pow10": func(x float64) float64 { return math.Pow(10, x) },
+		"rint": math.RoundToEven, "nearbyint": math.RoundToEven,
 		"significand": func(x float64) float64 {
 			if x == 0 || math.IsInf(x, 0) || math.IsNaN(x) {
 				return x
@@ -263,7 +263,10 @@ func addMoreBuiltins(m map[string]builtinFn) {
 	m["input_filename/0"] = func(*compiler, []node) (filter, error) {
 		return func(e *env, _ any, out emitFn) error {
 			v, _ := e.lookup(fileVar)
-			return out(v)
+			if f, ok := v.(*fileName); ok {
+				return out(f.v)
+			}
+			return out(nil)
 		}, nil
 	}
 	m["input/0"] = func(*compiler, []node) (filter, error) {
@@ -278,7 +281,7 @@ func addMoreBuiltins(m map[string]builtinFn) {
 					return out(v)
 				}
 			}
-			return errorf("No more inputs")
+			return errorf("break") // what jq 1.7.1 reports when input runs out
 		}, nil
 	}
 	m["inputs/0"] = func(*compiler, []node) (filter, error) {
@@ -303,13 +306,15 @@ func addMoreBuiltins(m map[string]builtinFn) {
 		}, nil
 	}
 	m["halt/0"] = simple(func(any) (any, error) { return nil, &HaltError{Code: 0} })
-	m["halt_error/0"] = simple(func(in any) (any, error) { return nil, &HaltError{Code: 5, Value: in, HasValue: true} })
+	// The value is copied out: it is written after its input's buffer is
+	// given back.
+	m["halt_error/0"] = simple(func(in any) (any, error) { return nil, &HaltError{Code: 5, Value: jv.Detach(in), HasValue: true} })
 	m["halt_error/1"] = withValues(func(in any, a []any) (any, error) {
 		n, ok := jv.AsNumber(a[0])
 		if !ok {
 			return nil, errorf("halt_error/1: number required")
 		}
-		return nil, &HaltError{Code: int(n.F), Value: in, HasValue: true}
+		return nil, &HaltError{Code: int(n.F), Value: jv.Detach(in), HasValue: true}
 	})
 	m["gmtime/0"] = simple(func(in any) (any, error) {
 		n, ok := jv.AsNumber(in)
@@ -389,8 +394,8 @@ func (h *HaltError) Error() string { return "halt" }
 // Message is what halt_error prints: a string as is, anything else as JSON
 // on its own line.
 func (h *HaltError) Message() string {
-	if !h.HasValue {
-		return ""
+	if !h.HasValue || jv.KindOf(h.Value) == jv.KNull {
+		return "" // jq writes nothing for null
 	}
 	if jv.KindOf(h.Value) == jv.KString {
 		return jv.Str(h.Value)
@@ -524,7 +529,10 @@ func joinFilter(idxF, stream, key, join filter) filter {
 // brokenDown is jq's "broken down time": [year, month (0-11), day,
 // hours, minutes, seconds (with fraction), weekday, day of the year (0-)].
 func brokenDown(secs float64, loc *time.Location) []any {
-	whole, frac := math.Modf(secs)
+	// As jq: the whole seconds are truncated toward zero, and the seconds
+	// field gets the fraction above the floor.
+	whole := math.Trunc(secs)
+	frac := secs - math.Floor(secs)
 	t := time.Unix(int64(whole), 0).In(loc)
 	return []any{
 		jv.Num(float64(t.Year())), jv.Num(float64(t.Month() - 1)), jv.Num(float64(t.Day())),

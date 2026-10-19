@@ -58,11 +58,20 @@ Changes from the approved plan, made while building v0.1.0:
   `--jsonargs`, `$ARGS`, `--unbuffered`.
 
 Known and documented differences from jq: bad lines skipped and counted;
-RE2 instead of Oniguruma (no backreferences or lookaround, the `n` flag
-drops empty matches); Go math in the last digit (`erfc(-1)`); `%Z` of a
-`gmtime` time is UTC. Grouping by a field with about a million distinct values
-on 1 GiB takes 10 to 16 seconds on 2 cores, mostly in the serial merge and
-the garbage collector; it's fine for the usual few-thousand-group case.
+RE2 instead of Oniguruma (no backreferences or lookaround; empty matches
+with `g` or `n` can differ; regex syntax errors are worded differently); Go
+math in the last digit for many functions; `%Z` and `%s` of a `gmtime` time
+are UTC; messages about invalid JSON text and compile errors are worded
+differently. Grouping by a field with about a million distinct values on
+1 GiB takes 10 to 16 seconds on 2 cores, mostly in the serial merge and the
+garbage collector; it's fine for the usual few-thousand-group case.
+
+An independent review before the release found two crashes (halt_error on
+an input value read memory after its chunk was released; tonumber on a
+string with leading spaces) and about thirty smaller differences from jq;
+all were fixed or documented, with a test or a differential case each. The
+differential test now also reads the corpus as a file, so the
+memory-mapped path is compared with jq.
 
 ## Test results
 

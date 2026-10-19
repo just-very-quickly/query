@@ -65,11 +65,12 @@ func (b *breakErr) Error() string { return "break" }
 func newBreak() *breakErr { return &breakErr{new(int)} }
 
 // describe writes a value the way jq does in error messages: its type and
-// a shortened dump, such as: string ("abc").
+// a shortened dump, such as: string ("abc"). jq keeps up to 14 bytes of the
+// dump; a longer one is cut to 11 bytes and "...".
 func describe(v any) string {
 	s := string(jv.Encode(nil, v, jv.Format{Compact: true}))
-	if len(s) > 11 {
-		cut := 10
+	if len(s) > 14 {
+		cut := 11
 		for cut > 0 && !utf8.RuneStart(s[cut]) {
 			cut--
 		}
@@ -889,7 +890,7 @@ func modulo(a, b any) (any, error) {
 		y, _ := jv.AsNumber(b)
 		xi, yi := toInt(x.F), toInt(y.F)
 		if yi == 0 {
-			return nil, errorf("%s and %s cannot be divided because the divisor is zero", describe(a), describe(b))
+			return nil, errorf("%s and %s cannot be divided (remainder) because the divisor is zero", describe(a), describe(b))
 		}
 		if yi < 0 {
 			yi = -yi

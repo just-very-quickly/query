@@ -213,8 +213,13 @@ func toNumber(in any) (any, error) {
 		return in, nil
 	case jv.KString:
 		s := jv.Str(in)
-		if end, err := jv.Valid([]byte(s), 0); err == nil && end == len(s) && jv.KindOf(jv.Raw(s)) == jv.KNumber {
-			return jv.NumberFromLit(s), nil
+		// As jq, the string is parsed as JSON: surrounding whitespace is
+		// allowed and the literal keeps its digits.
+		lit := strings.Trim(s, " \t\r\n")
+		if lit != "" && jv.KindOf(jv.Raw(lit)) == jv.KNumber {
+			if end, err := jv.Valid([]byte(lit), 0); err == nil && end == len(lit) {
+				return jv.NumberFromLit(lit), nil
+			}
 		}
 		t := strings.TrimSpace(s)
 		if f, err := strconv.ParseFloat(t, 64); err == nil && t != "" && !strings.ContainsAny(t, "xXpP_") {
@@ -414,6 +419,18 @@ func strFn(name string, f func(s string) any) builtinFn {
 	})
 }
 
+// flattenInput is what flatten iterates: an array's elements or an
+// object's values, as jq's definition does with .[].
+func flattenInput(in any) ([]any, error) {
+	switch v := jv.Norm(in).(type) {
+	case []any:
+		return v, nil
+	case *jv.Object:
+		return v.Vals, nil
+	}
+	return nil, errorf("Cannot iterate over %s", describe(in))
+}
+
 func joinArray(in, sep any) (any, error) {
 	a, err := arrayOf(in, "joined")
 	if err != nil {
@@ -442,7 +459,8 @@ func joinArray(in, sep any) (any, error) {
 		case jv.KNumber, jv.KTrue, jv.KFalse:
 			sb.WriteString(toString(v))
 		default:
-			return nil, errorf("Cannot join with %s", jv.TypeName(v))
+			// jq adds the element to the string so far
+			return nil, errorf("%s and %s cannot be added", describe(sb.String()), describe(v))
 		}
 	}
 	return sb.String(), nil
@@ -544,7 +562,7 @@ func indicesOf(in, x any) (any, error) {
 		out := []any{}
 		if sub, ok := jv.Norm(x).([]any); ok {
 			if len(sub) == 0 {
-				return nil, nil
+				return []any{}, nil
 			}
 			for i := 0; i+len(sub) <= len(a); i++ {
 				match := true
@@ -613,25 +631,30 @@ func init() {
 		"empty/0": func(*compiler, []node) (filter, error) {
 			return func(*env, any, emitFn) error { return nil }, nil
 		},
-		"not/0":            simple(func(in any) (any, error) { return !jv.Truthy(in), nil }),
-		"length/0":         simple(lengthOf),
-		"utf8bytelength/0": strFn("utf8bytelength", func(s string) any { return jv.Num(float64(len(s))) }),
-		"keys/0":           simple(func(in any) (any, error) { return keysOf(in, true) }),
-		"keys_unsorted/0":  simple(func(in any) (any, error) { return keysOf(in, false) }),
-		"has/1":            withValues(func(in any, a []any) (any, error) { return hasKey(in, a[0]) }),
-		"in/1":             withValues(func(in any, a []any) (any, error) { return hasKey(a[0], in) }),
-		"values/0":         func(*compiler, []node) (filter, error) { return notNull, nil },
-		"nulls/0":          typeSelect(jv.KNull),
-		"booleans/0":       typeSelect(jv.KTrue, jv.KFalse),
-		"numbers/0":        typeSelect(jv.KNumber),
-		"strings/0":        typeSelect(jv.KString),
-		"arrays/0":         typeSelect(jv.KArray),
-		"objects/0":        typeSelect(jv.KObject),
-		"iterables/0":      typeSelect(jv.KArray, jv.KObject),
-		"scalars/0":        typeSelect(jv.KNull, jv.KTrue, jv.KFalse, jv.KNumber, jv.KString),
-		"type/0":           simple(func(in any) (any, error) { return jv.TypeName(in), nil }),
-		"tostring/0":       simple(func(in any) (any, error) { return toString(in), nil }),
-		"tonumber/0":       simple(toNumber),
+		"not/0":    simple(func(in any) (any, error) { return !jv.Truthy(in), nil }),
+		"length/0": simple(lengthOf),
+		"utf8bytelength/0": simple(func(in any) (any, error) {
+			if jv.KindOf(in) != jv.KString {
+				return nil, errorf("%s only strings have UTF-8 byte length", describe(in))
+			}
+			return jv.Num(float64(len(jv.Str(in)))), nil
+		}),
+		"keys/0":          simple(func(in any) (any, error) { return keysOf(in, true) }),
+		"keys_unsorted/0": simple(func(in any) (any, error) { return keysOf(in, false) }),
+		"has/1":           withValues(func(in any, a []any) (any, error) { return hasKey(in, a[0]) }),
+		"in/1":            withValues(func(in any, a []any) (any, error) { return hasKey(a[0], in) }),
+		"values/0":        func(*compiler, []node) (filter, error) { return notNull, nil },
+		"nulls/0":         typeSelect(jv.KNull),
+		"booleans/0":      typeSelect(jv.KTrue, jv.KFalse),
+		"numbers/0":       typeSelect(jv.KNumber),
+		"strings/0":       typeSelect(jv.KString),
+		"arrays/0":        typeSelect(jv.KArray),
+		"objects/0":       typeSelect(jv.KObject),
+		"iterables/0":     typeSelect(jv.KArray, jv.KObject),
+		"scalars/0":       typeSelect(jv.KNull, jv.KTrue, jv.KFalse, jv.KNumber, jv.KString),
+		"type/0":          simple(func(in any) (any, error) { return jv.TypeName(in), nil }),
+		"tostring/0":      simple(func(in any) (any, error) { return toString(in), nil }),
+		"tonumber/0":      simple(toNumber),
 		"tojson/0": simple(func(in any) (any, error) {
 			return string(jv.Encode(nil, in, jv.Format{Compact: true})), nil
 		}),
@@ -646,7 +669,7 @@ func init() {
 			}
 			return v, nil
 		}),
-		"ascii_downcase/0": strFn("ascii_downcase", func(s string) any {
+		"ascii_downcase/0": strFn("explode", func(s string) any { // jq's message names explode
 			return strings.Map(func(r rune) rune {
 				if r >= 'A' && r <= 'Z' {
 					return r + 32
@@ -654,7 +677,7 @@ func init() {
 				return r
 			}, s)
 		}),
-		"ascii_upcase/0": strFn("ascii_upcase", func(s string) any {
+		"ascii_upcase/0": strFn("explode", func(s string) any {
 			return strings.Map(func(r rune) rune {
 				if r >= 'a' && r <= 'z' {
 					return r - 32
@@ -780,9 +803,9 @@ func init() {
 		"any/2": withFilters(func(f []filter) filter { return anyAll(f[0], f[1], true) }),
 		"all/2": withFilters(func(f []filter) filter { return anyAll(f[0], f[1], false) }),
 		"flatten/0": simple(func(in any) (any, error) {
-			a, err := arrayOf(in, "flattened")
+			a, err := flattenInput(in)
 			if err != nil {
-				return nil, errorf("Cannot iterate over %s", describe(in))
+				return nil, err
 			}
 			return flatten(a, 1e9, []any{}), nil
 		}),
@@ -794,9 +817,9 @@ func init() {
 			if d.F < 0 {
 				return nil, errorf("flatten depth must not be negative")
 			}
-			a, err := arrayOf(in, "flattened")
+			a, err := flattenInput(in)
 			if err != nil {
-				return nil, errorf("Cannot iterate over %s", describe(in))
+				return nil, err
 			}
 			return flatten(a, d.F, []any{}), nil
 		}),
@@ -905,24 +928,24 @@ func init() {
 		}),
 		"min_by/1": byFilter("iterated over", func(a []any, ks [][]any) (any, error) { return extremeBy(a, ks, false), nil }),
 		"max_by/1": byFilter("iterated over", func(a []any, ks [][]any) (any, error) { return extremeBy(a, ks, true), nil }),
+		// jq 1.7.1 defines reverse as [.[length - 1 - range(0; length)]], so
+		// only arrays (and null, and empty values) work.
 		"reverse/0": simple(func(in any) (any, error) {
-			switch v := jv.Norm(in).(type) {
-			case nil:
-				return []any{}, nil
-			case string:
-				rs := []rune(v)
-				for i, j := 0, len(rs)-1; i < j; i, j = i+1, j-1 {
-					rs[i], rs[j] = rs[j], rs[i]
-				}
-				return string(rs), nil
-			case []any:
-				out := make([]any, len(v))
-				for i, x := range v {
-					out[len(v)-1-i] = x
+			if a, ok := jv.Norm(in).([]any); ok {
+				out := make([]any, len(a))
+				for i, x := range a {
+					out[len(a)-1-i] = x
 				}
 				return out, nil
 			}
-			return nil, errorf("Cannot reverse %s", describe(in))
+			n, err := lengthOf(in)
+			if err != nil {
+				return nil, err
+			}
+			if n.(jv.Number).F == 0 {
+				return []any{}, nil
+			}
+			return nil, errorf("Cannot index %s with number", jv.TypeName(in))
 		}),
 		"to_entries/0":   simple(toEntries),
 		"from_entries/0": simple(fromEntries),
@@ -1150,7 +1173,13 @@ func init() {
 		}),
 		"stderr/0": func(*compiler, []node) (filter, error) {
 			return func(e *env, in any, out emitFn) error {
-				debugWrite(e, string(jv.Encode(nil, in, jv.Format{Compact: true})))
+				// As jq 1.7.1: strings raw, anything else as compact JSON, with
+				// no newline.
+				if jv.KindOf(in) == jv.KString {
+					debugWrite(e, jv.Str(in))
+				} else {
+					debugWrite(e, string(jv.Encode(nil, in, jv.Format{Compact: true})))
+				}
 				return out(in)
 			}, nil
 		},
@@ -1432,8 +1461,7 @@ func timeOf(in any, name string) (time.Time, error) {
 	if !ok {
 		return time.Time{}, errorf("%s requires parsed datetime inputs", name)
 	}
-	sec, frac := math.Modf(n.F)
-	return time.Unix(int64(sec), int64(frac*1e9)).UTC(), nil
+	return time.Unix(int64(math.Trunc(n.F)), 0).UTC(), nil // jq truncates toward zero
 }
 
 func fromDate(in any) (any, error) {
@@ -1441,7 +1469,7 @@ func fromDate(in any) (any, error) {
 		return nil, errorf("strptime/1 requires string inputs and arguments")
 	}
 	s := jv.Str(in)
-	t, err := time.Parse("2006-01-02T15:04:05Z", s)
+	t, err := strptime(s, "%Y-%m-%dT%H:%M:%SZ")
 	if err != nil {
 		return nil, errorf("date \"%s\" does not match format \"%%Y-%%m-%%dT%%H:%%M:%%SZ\"", s)
 	}
