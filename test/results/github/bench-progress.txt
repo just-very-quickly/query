@@ -1,0 +1,48 @@
+bench: 1024 MiB, 3073492 lines, 4 cores, AMD EPYC 9V74 80-Core Processor
+bench: reformat  jq                   35.402s       6 MiB  reference
+bench: reformat  jvqq                  1.769s      42 MiB  same bytes
+bench: reformat  jvqq, 1 core          3.774s      29 MiB  same bytes
+bench: reformat  qj                    1.508s      59 MiB  same bytes
+bench: reformat  jaq                  28.013s    1035 MiB  same bytes
+bench: reformat  gojq                 47.954s      12 MiB  same values
+bench: select    jq                   20.759s       6 MiB  reference
+bench: select    jvqq                  1.008s      52 MiB  same bytes
+bench: select    jvqq, 1 core          2.213s      33 MiB  same bytes
+bench: select    qj                    0.765s      51 MiB  same bytes
+bench: select    jaq                  17.301s    1038 MiB  same bytes
+bench: select    gojq                 29.978s      11 MiB  same values
+bench: field     jq                   17.994s       6 MiB  reference
+bench: field     jvqq                  0.922s      52 MiB  same bytes
+bench: field     jvqq, 1 core          2.028s      32 MiB  same bytes
+bench: field     qj                    0.693s      46 MiB  same bytes
+bench: field     jaq                  18.452s    1038 MiB  same bytes
+bench: field     gojq                 36.007s      12 MiB  same bytes
+bench: project   jq                   23.073s       6 MiB  reference
+bench: project   jvqq                  1.242s      51 MiB  same bytes
+bench: project   jvqq, 1 core          2.765s      33 MiB  same bytes
+bench: project   qj                    1.118s      44 MiB  same bytes
+bench: project   jaq                  26.908s    1035 MiB  same bytes
+bench: project   gojq                 39.403s      11 MiB  same values
+bench: count     jq                   17.318s       6 MiB  reference
+bench: count     jvqq                  0.735s      45 MiB  same values
+bench: count     jvqq, jq's filter    10.071s      25 MiB  same values
+bench: count     qj                    5.511s      19 MiB  same values
+bench: count     jaq                  11.536s    1035 MiB  same values
+bench: count     gojq                 23.038s      12 MiB  same values
+bench: count by  jq                   29.723s       6 MiB  reference
+bench: count by  jvqq                  0.955s      48 MiB  same values
+bench: count by  jvqq, jq's filter    12.779s      25 MiB  same values
+bench: count by  qj                    9.557s      20 MiB  same values
+bench: count by  jaq                  14.774s    1038 MiB  same values
+bench: count by  gojq                 30.245s      11 MiB  same values
+bench: sum by    jq                   30.831s       6 MiB  reference
+bench: sum by    jvqq                  1.179s      50 MiB  same values
+bench: sum by    jvqq, jq's filter    12.965s      25 MiB  same values
+bench: sum by    qj                   10.447s      19 MiB  same values
+bench: sum by    jaq                  16.396s    1038 MiB  same values
+bench: sum by    gojq                 30.525s      12 MiB  same values
+bench: big file, 6144 MiB, 18440091 lines
+bench: big count        4.359s      68 MiB  every line counted
+bench: big count by     5.717s      69 MiB  counts add up to the lines
+bench: big select       5.389s      68 MiB  2303691 lines out
+bench: big reformat    14.126s      62 MiB  one output line per input line

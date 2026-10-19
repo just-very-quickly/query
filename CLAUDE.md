@@ -23,7 +23,9 @@ afterwards.
 
 ## Where things stand
 
-v0.1.0 is the first release (October 2026). jvqq runs jq filters over JSON
+v0.1.0 is the first release, published on October 19, 2026 by the release
+workflow (all seven files, checksums checked, the downloaded Linux binary
+and `go install ...@v0.1.0` run). jvqq runs jq filters over JSON
 Lines on every core, with output in input order and flat memory, and prints
 what jq 1.7.1 prints. The layout:
 
@@ -86,9 +88,17 @@ The `bench` workflow records the benchmark on a GitHub-hosted runner when the
 engine or the evaluator changes (or by hand) and pushes it to the
 `bench-results` branch; record.sh copies it into `test/results/github/`.
 
+The first runner recording (commit 11d0b9e, 4-core AMD EPYC): jvqq 19 to
+31 times faster than jq 1.7.1 on 1 GiB, at most about 52 MiB; qj a little
+faster on the line-by-line filters, 7 to 10 times slower on counting and
+grouping; 6 GiB counted in 4.4 s at 68 MiB.
+
 The differential test is `cmd/jvqq/diff_test.go` over
 `cmd/jvqq/testdata/filters.txt` and `corpus.jsonl`: add a line there for every
-new builtin or behavior, and mark unsupported features with `~`.
+new builtin or behavior, mark unsupported features with `~`, and start a
+line with `glibc ` when jq's answer comes from the C library (math,
+strftime, gmtime's range): those run on Linux only, since jq on macOS uses
+the BSD library.
 
 ## Next
 

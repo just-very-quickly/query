@@ -33,7 +33,7 @@ people end up writing a throwaway Python script instead. jvqq keeps the
 filter language and makes the big file fast.
 
 It's not the only fast jq. [qj](https://github.com/6/qj), built on simdjson,
-is a little faster than jvqq on two of the benchmarks below, and
+is a little faster than jvqq on the line-by-line benchmarks below, and
 [jaq](https://github.com/01mf02/jaq) is a careful reimplementation. jvqq's
 angle is exact jq output on a single portable binary, aggregations that
 replace `reduce inputs` and `-s` on big files, and plain behavior on messy
@@ -184,41 +184,43 @@ The differences:
 
 Measured by [scripts/bench.py](scripts/bench.py) on 1 GiB of generated log
 lines ([test/bench/gen.go](test/bench/gen.go)), against jq 1.7.1, jaq, gojq
-and qj, with every output checked against jq's. The numbers below are from
-[test/results/bench.md](test/results/bench.md), which also gives the
-machine, the versions and the exact commands. The `bench` workflow records
-the same suite on a GitHub-hosted runner; its results go to the
-`bench-results` branch, and `scripts/record.sh` copies them into
-test/results/github/.
+and qj, with every output checked against jq's. The `bench` workflow runs it
+on a GitHub-hosted runner and saves the results to the `bench-results`
+branch; `scripts/record.sh` copies them into test/results/github/, which
+also gives the versions and the exact commands.
 
 | workload | jq | jvqq | jvqq vs jq | jvqq, 1 core | qj | jaq | gojq |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| reformat | 67.5 s | **3.3 s** | 20x | 5.7 s | 3.9 s | 37.5 s | 78.6 s |
-| select | 38.7 s | **2.4 s** | 16x | 4.1 s | 2.1 s | 23.9 s | 56.9 s |
-| field | 33.1 s | **1.9 s** | 17x | 3.9 s | 1.8 s | 20.9 s | 55.1 s |
-| project | 42.2 s | **2.8 s** | 15x | 5.3 s | 3.0 s | 33.1 s | 62.2 s |
-| count | 30.4 s | **2.1 s** | 14x | 22.0 s ¹ | 7.0 s | 14.8 s | 40.4 s |
-| count by | 49.7 s | **2.1 s** | 23x | 27.8 s ¹ | 11.9 s | 18.0 s | 53.6 s |
-| sum by | 52.7 s | **3.0 s** | 18x | 28.4 s ¹ | 11.8 s | 21.3 s | 55.6 s |
+| reformat | 35.4 s | **1.8 s** | 20x | 3.8 s | 1.5 s | 28.0 s | 48.0 s |
+| select | 20.8 s | **1.0 s** | 21x | 2.2 s | 0.8 s | 17.3 s | 30.0 s |
+| field | 18.0 s | **0.9 s** | 20x | 2.0 s | 0.7 s | 18.5 s | 36.0 s |
+| project | 23.1 s | **1.2 s** | 19x | 2.8 s | 1.1 s | 26.9 s | 39.4 s |
+| count | 17.3 s | **0.7 s** | 24x | 10.1 s ¹ | 5.5 s | 11.5 s | 23.0 s |
+| count by | 29.7 s | **1.0 s** | 31x | 12.8 s ¹ | 9.6 s | 14.8 s | 30.2 s |
+| sum by | 30.8 s | **1.2 s** | 26x | 13.0 s ¹ | 10.4 s | 16.4 s | 30.5 s |
 
 ¹ For count, count by and sum by, jq and the others run `reduce inputs`. The
 "jvqq" column is jvqq's aggregation (`count`, `count_by(.service)`,
 `group_by(.service; {ms: sum(.latency_ms)})`); this column is jvqq running
 jq's `reduce inputs` filter, which reads in order on one core.
 
-Recorded on a 2-core Intel Xeon at 2.80GHz (Linux), median of 3 runs after
-a warm-up run. Every output was checked against jq's: jvqq's were the same
-bytes for the line-by-line filters and the same values for the
-aggregations. jvqq used at most 32 MiB; jaq used about 1 GiB on every
-workload. qj is a little faster than jvqq on select and field and slower on
-the rest. More cores help jvqq: a single-core run is in the "1 core" column.
+Recorded by the `bench` workflow on a GitHub-hosted runner (4 cores, AMD
+EPYC, Linux), median of 3 runs after a warm-up run, from
+[test/results/github/bench.md](test/results/github/bench.md). Every output
+was checked against jq's: jvqq's were the same bytes for the line-by-line
+filters and the same values for the aggregations. jvqq used at most
+52 MiB; jaq used about 1 GiB on every workload. qj is a little faster
+than jvqq on reformat, select, field and project, and 7 to 10 times slower
+on counting and grouping, where jvqq's aggregations run in parallel. The
+same suite on a 2-core machine is in
+[test/results/bench.md](test/results/bench.md).
 
 On a 6 GiB file (18,440,091 lines), jvqq alone, one run each:
 
-- count 17.8 s at 46 MiB (every line counted)
-- count by 22.4 s at 48 MiB (counts add up to the lines)
-- select 20.0 s at 49 MiB (2,303,691 lines out)
-- reformat 35.4 s at 43 MiB (one output line per input line)
+- count 4.4 s at 68 MiB (every line counted)
+- count by 5.7 s at 69 MiB (counts add up to the lines)
+- select 5.4 s at 68 MiB (2,303,691 lines out)
+- reformat 14.1 s at 62 MiB (one output line per input line)
 
 ## Exit codes
 

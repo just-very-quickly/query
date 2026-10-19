@@ -1,0 +1,917 @@
+{
+  "environment": {
+    "os": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+    "cpu": "AMD EPYC 9V74 80-Core Processor",
+    "cores": 4,
+    "file_bytes": 1073742109,
+    "file_lines": 3073492,
+    "runs": 3,
+    "tools": {
+      "jvqq": "0.1.0",
+      "qj": "0.3.0",
+      "jaq": "3.1.1",
+      "gojq": "0.12.17 (rev: f4c2cfe/go1.23.3)",
+      "jq": "1.7.1"
+    }
+  },
+  "results": [
+    {
+      "workload": "reformat",
+      "what": "print every line compactly",
+      "tool": "jq",
+      "command": [
+        "jq",
+        "-c",
+        ".",
+        "FILE"
+      ],
+      "seconds": 35.402,
+      "all_seconds": [
+        35.323,
+        35.473,
+        35.402
+      ],
+      "peak_mib": 5.9,
+      "output_bytes": 1073742109,
+      "output": "reference"
+    },
+    {
+      "workload": "reformat",
+      "what": "print every line compactly",
+      "tool": "jvqq",
+      "command": [
+        "jvqq",
+        "-c",
+        ".",
+        "FILE"
+      ],
+      "seconds": 1.769,
+      "all_seconds": [
+        1.769,
+        1.794,
+        1.769
+      ],
+      "peak_mib": 41.7,
+      "output_bytes": 1073742109,
+      "output": "same bytes"
+    },
+    {
+      "workload": "reformat",
+      "what": "print every line compactly",
+      "tool": "jvqq, 1 core",
+      "command": [
+        "jvqq",
+        "--workers",
+        "1",
+        "-c",
+        ".",
+        "FILE"
+      ],
+      "seconds": 3.774,
+      "all_seconds": [
+        3.774,
+        3.765,
+        3.786
+      ],
+      "peak_mib": 28.6,
+      "output_bytes": 1073742109,
+      "output": "same bytes"
+    },
+    {
+      "workload": "reformat",
+      "what": "print every line compactly",
+      "tool": "qj",
+      "command": [
+        "qj",
+        "-c",
+        ".",
+        "FILE"
+      ],
+      "seconds": 1.508,
+      "all_seconds": [
+        1.516,
+        1.502,
+        1.508
+      ],
+      "peak_mib": 58.7,
+      "output_bytes": 1073742109,
+      "output": "same bytes"
+    },
+    {
+      "workload": "reformat",
+      "what": "print every line compactly",
+      "tool": "jaq",
+      "command": [
+        "jaq",
+        "-c",
+        ".",
+        "FILE"
+      ],
+      "seconds": 28.013,
+      "all_seconds": [
+        28.013,
+        28.056,
+        27.893
+      ],
+      "peak_mib": 1035.4,
+      "output_bytes": 1073742109,
+      "output": "same bytes"
+    },
+    {
+      "workload": "reformat",
+      "what": "print every line compactly",
+      "tool": "gojq",
+      "command": [
+        "gojq",
+        "-c",
+        ".",
+        "FILE"
+      ],
+      "seconds": 47.954,
+      "all_seconds": [
+        47.954,
+        47.989,
+        47.928
+      ],
+      "peak_mib": 12.4,
+      "output_bytes": 1073742109,
+      "output": "same values"
+    },
+    {
+      "workload": "select",
+      "what": "keep the error lines",
+      "tool": "jq",
+      "command": [
+        "jq",
+        "-c",
+        "select(.level == \"error\")",
+        "FILE"
+      ],
+      "seconds": 20.759,
+      "all_seconds": [
+        20.744,
+        20.759,
+        20.81
+      ],
+      "peak_mib": 5.9,
+      "output_bytes": 165341800,
+      "output": "reference"
+    },
+    {
+      "workload": "select",
+      "what": "keep the error lines",
+      "tool": "jvqq",
+      "command": [
+        "jvqq",
+        "-c",
+        "select(.level == \"error\")",
+        "FILE"
+      ],
+      "seconds": 1.008,
+      "all_seconds": [
+        1.011,
+        1.003,
+        1.008
+      ],
+      "peak_mib": 52.3,
+      "output_bytes": 165341800,
+      "output": "same bytes"
+    },
+    {
+      "workload": "select",
+      "what": "keep the error lines",
+      "tool": "jvqq, 1 core",
+      "command": [
+        "jvqq",
+        "--workers",
+        "1",
+        "-c",
+        "select(.level == \"error\")",
+        "FILE"
+      ],
+      "seconds": 2.213,
+      "all_seconds": [
+        2.235,
+        2.206,
+        2.213
+      ],
+      "peak_mib": 33.0,
+      "output_bytes": 165341800,
+      "output": "same bytes"
+    },
+    {
+      "workload": "select",
+      "what": "keep the error lines",
+      "tool": "qj",
+      "command": [
+        "qj",
+        "-c",
+        "select(.level == \"error\")",
+        "FILE"
+      ],
+      "seconds": 0.765,
+      "all_seconds": [
+        0.767,
+        0.765,
+        0.754
+      ],
+      "peak_mib": 51.1,
+      "output_bytes": 165341800,
+      "output": "same bytes"
+    },
+    {
+      "workload": "select",
+      "what": "keep the error lines",
+      "tool": "jaq",
+      "command": [
+        "jaq",
+        "-c",
+        "select(.level == \"error\")",
+        "FILE"
+      ],
+      "seconds": 17.301,
+      "all_seconds": [
+        17.341,
+        17.264,
+        17.301
+      ],
+      "peak_mib": 1037.8,
+      "output_bytes": 165341800,
+      "output": "same bytes"
+    },
+    {
+      "workload": "select",
+      "what": "keep the error lines",
+      "tool": "gojq",
+      "command": [
+        "gojq",
+        "-c",
+        "select(.level == \"error\")",
+        "FILE"
+      ],
+      "seconds": 29.978,
+      "all_seconds": [
+        29.796,
+        30.142,
+        29.978
+      ],
+      "peak_mib": 10.9,
+      "output_bytes": 165341800,
+      "output": "same values"
+    },
+    {
+      "workload": "field",
+      "what": "one nested field per line",
+      "tool": "jq",
+      "command": [
+        "jq",
+        ".user.id",
+        "FILE"
+      ],
+      "seconds": 17.994,
+      "all_seconds": [
+        18.001,
+        17.994,
+        17.898
+      ],
+      "peak_mib": 5.9,
+      "output_bytes": 19721409,
+      "output": "reference"
+    },
+    {
+      "workload": "field",
+      "what": "one nested field per line",
+      "tool": "jvqq",
+      "command": [
+        "jvqq",
+        ".user.id",
+        "FILE"
+      ],
+      "seconds": 0.922,
+      "all_seconds": [
+        0.922,
+        0.929,
+        0.921
+      ],
+      "peak_mib": 52.5,
+      "output_bytes": 19721409,
+      "output": "same bytes"
+    },
+    {
+      "workload": "field",
+      "what": "one nested field per line",
+      "tool": "jvqq, 1 core",
+      "command": [
+        "jvqq",
+        "--workers",
+        "1",
+        ".user.id",
+        "FILE"
+      ],
+      "seconds": 2.028,
+      "all_seconds": [
+        2.026,
+        2.03,
+        2.028
+      ],
+      "peak_mib": 31.9,
+      "output_bytes": 19721409,
+      "output": "same bytes"
+    },
+    {
+      "workload": "field",
+      "what": "one nested field per line",
+      "tool": "qj",
+      "command": [
+        "qj",
+        ".user.id",
+        "FILE"
+      ],
+      "seconds": 0.693,
+      "all_seconds": [
+        0.693,
+        0.695,
+        0.692
+      ],
+      "peak_mib": 45.7,
+      "output_bytes": 19721409,
+      "output": "same bytes"
+    },
+    {
+      "workload": "field",
+      "what": "one nested field per line",
+      "tool": "jaq",
+      "command": [
+        "jaq",
+        ".user.id",
+        "FILE"
+      ],
+      "seconds": 18.452,
+      "all_seconds": [
+        18.495,
+        18.452,
+        18.442
+      ],
+      "peak_mib": 1037.9,
+      "output_bytes": 19721409,
+      "output": "same bytes"
+    },
+    {
+      "workload": "field",
+      "what": "one nested field per line",
+      "tool": "gojq",
+      "command": [
+        "gojq",
+        ".user.id",
+        "FILE"
+      ],
+      "seconds": 36.007,
+      "all_seconds": [
+        35.989,
+        36.007,
+        36.009
+      ],
+      "peak_mib": 12.2,
+      "output_bytes": 19721409,
+      "output": "same bytes"
+    },
+    {
+      "workload": "project",
+      "what": "a smaller object per line",
+      "tool": "jq",
+      "command": [
+        "jq",
+        "-c",
+        "{ts, service, ms: .latency_ms}",
+        "FILE"
+      ],
+      "seconds": 23.073,
+      "all_seconds": [
+        23.02,
+        23.109,
+        23.073
+      ],
+      "peak_mib": 5.9,
+      "output_bytes": 197835217,
+      "output": "reference"
+    },
+    {
+      "workload": "project",
+      "what": "a smaller object per line",
+      "tool": "jvqq",
+      "command": [
+        "jvqq",
+        "-c",
+        "{ts, service, ms: .latency_ms}",
+        "FILE"
+      ],
+      "seconds": 1.242,
+      "all_seconds": [
+        1.242,
+        1.245,
+        1.237
+      ],
+      "peak_mib": 50.7,
+      "output_bytes": 197835217,
+      "output": "same bytes"
+    },
+    {
+      "workload": "project",
+      "what": "a smaller object per line",
+      "tool": "jvqq, 1 core",
+      "command": [
+        "jvqq",
+        "--workers",
+        "1",
+        "-c",
+        "{ts, service, ms: .latency_ms}",
+        "FILE"
+      ],
+      "seconds": 2.765,
+      "all_seconds": [
+        2.765,
+        2.767,
+        2.74
+      ],
+      "peak_mib": 33.0,
+      "output_bytes": 197835217,
+      "output": "same bytes"
+    },
+    {
+      "workload": "project",
+      "what": "a smaller object per line",
+      "tool": "qj",
+      "command": [
+        "qj",
+        "-c",
+        "{ts, service, ms: .latency_ms}",
+        "FILE"
+      ],
+      "seconds": 1.118,
+      "all_seconds": [
+        1.118,
+        1.123,
+        1.107
+      ],
+      "peak_mib": 43.6,
+      "output_bytes": 197835217,
+      "output": "same bytes"
+    },
+    {
+      "workload": "project",
+      "what": "a smaller object per line",
+      "tool": "jaq",
+      "command": [
+        "jaq",
+        "-c",
+        "{ts, service, ms: .latency_ms}",
+        "FILE"
+      ],
+      "seconds": 26.908,
+      "all_seconds": [
+        26.849,
+        26.945,
+        26.908
+      ],
+      "peak_mib": 1035.4,
+      "output_bytes": 197835217,
+      "output": "same bytes"
+    },
+    {
+      "workload": "project",
+      "what": "a smaller object per line",
+      "tool": "gojq",
+      "command": [
+        "gojq",
+        "-c",
+        "{ts, service, ms: .latency_ms}",
+        "FILE"
+      ],
+      "seconds": 39.403,
+      "all_seconds": [
+        39.332,
+        39.419,
+        39.403
+      ],
+      "peak_mib": 10.8,
+      "output_bytes": 197835217,
+      "output": "same values"
+    },
+    {
+      "workload": "count",
+      "what": "count the lines",
+      "tool": "jq",
+      "command": [
+        "jq",
+        "-n",
+        "reduce inputs as $x (0; . + 1)",
+        "FILE"
+      ],
+      "seconds": 17.318,
+      "all_seconds": [
+        17.318,
+        17.361,
+        17.318
+      ],
+      "peak_mib": 6.0,
+      "output_bytes": 8,
+      "output": "reference"
+    },
+    {
+      "workload": "count",
+      "what": "count the lines",
+      "tool": "jvqq",
+      "command": [
+        "jvqq",
+        "count",
+        "FILE"
+      ],
+      "seconds": 0.735,
+      "all_seconds": [
+        0.739,
+        0.732,
+        0.735
+      ],
+      "peak_mib": 44.6,
+      "output_bytes": 8,
+      "output": "same values"
+    },
+    {
+      "workload": "count",
+      "what": "count the lines",
+      "tool": "jvqq, jq's filter",
+      "command": [
+        "jvqq",
+        "-n",
+        "reduce inputs as $x (0; . + 1)",
+        "FILE"
+      ],
+      "seconds": 10.071,
+      "all_seconds": [
+        10.051,
+        10.094,
+        10.071
+      ],
+      "peak_mib": 25.0,
+      "output_bytes": 8,
+      "output": "same values"
+    },
+    {
+      "workload": "count",
+      "what": "count the lines",
+      "tool": "qj",
+      "command": [
+        "qj",
+        "-n",
+        "reduce inputs as $x (0; . + 1)",
+        "FILE"
+      ],
+      "seconds": 5.511,
+      "all_seconds": [
+        5.511,
+        5.544,
+        5.491
+      ],
+      "peak_mib": 19.2,
+      "output_bytes": 8,
+      "output": "same values"
+    },
+    {
+      "workload": "count",
+      "what": "count the lines",
+      "tool": "jaq",
+      "command": [
+        "jaq",
+        "-n",
+        "reduce inputs as $x (0; . + 1)",
+        "FILE"
+      ],
+      "seconds": 11.536,
+      "all_seconds": [
+        11.494,
+        11.596,
+        11.536
+      ],
+      "peak_mib": 1035.5,
+      "output_bytes": 8,
+      "output": "same values"
+    },
+    {
+      "workload": "count",
+      "what": "count the lines",
+      "tool": "gojq",
+      "command": [
+        "gojq",
+        "-n",
+        "reduce inputs as $x (0; . + 1)",
+        "FILE"
+      ],
+      "seconds": 23.038,
+      "all_seconds": [
+        23.038,
+        22.864,
+        23.087
+      ],
+      "peak_mib": 12.1,
+      "output_bytes": 8,
+      "output": "same values"
+    },
+    {
+      "workload": "count by",
+      "what": "lines per service",
+      "tool": "jq",
+      "command": [
+        "jq",
+        "-nc",
+        "reduce inputs as $x ({}; .[$x.service] += 1)",
+        "FILE"
+      ],
+      "seconds": 29.723,
+      "all_seconds": [
+        29.488,
+        29.723,
+        29.78
+      ],
+      "peak_mib": 5.9,
+      "output_bytes": 149,
+      "output": "reference"
+    },
+    {
+      "workload": "count by",
+      "what": "lines per service",
+      "tool": "jvqq",
+      "command": [
+        "jvqq",
+        "-c",
+        "count_by(.service)",
+        "FILE"
+      ],
+      "seconds": 0.955,
+      "all_seconds": [
+        0.955,
+        0.956,
+        0.954
+      ],
+      "peak_mib": 48.1,
+      "output_bytes": 149,
+      "output": "same values"
+    },
+    {
+      "workload": "count by",
+      "what": "lines per service",
+      "tool": "jvqq, jq's filter",
+      "command": [
+        "jvqq",
+        "-nc",
+        "reduce inputs as $x ({}; .[$x.service] += 1)",
+        "FILE"
+      ],
+      "seconds": 12.779,
+      "all_seconds": [
+        12.779,
+        12.842,
+        12.777
+      ],
+      "peak_mib": 24.8,
+      "output_bytes": 149,
+      "output": "same values"
+    },
+    {
+      "workload": "count by",
+      "what": "lines per service",
+      "tool": "qj",
+      "command": [
+        "qj",
+        "-nc",
+        "reduce inputs as $x ({}; .[$x.service] += 1)",
+        "FILE"
+      ],
+      "seconds": 9.557,
+      "all_seconds": [
+        9.557,
+        9.544,
+        9.602
+      ],
+      "peak_mib": 19.9,
+      "output_bytes": 149,
+      "output": "same values"
+    },
+    {
+      "workload": "count by",
+      "what": "lines per service",
+      "tool": "jaq",
+      "command": [
+        "jaq",
+        "-nc",
+        "reduce inputs as $x ({}; .[$x.service] += 1)",
+        "FILE"
+      ],
+      "seconds": 14.774,
+      "all_seconds": [
+        14.774,
+        14.836,
+        14.718
+      ],
+      "peak_mib": 1038.1,
+      "output_bytes": 149,
+      "output": "same values"
+    },
+    {
+      "workload": "count by",
+      "what": "lines per service",
+      "tool": "gojq",
+      "command": [
+        "gojq",
+        "-nc",
+        "reduce inputs as $x ({}; .[$x.service] += 1)",
+        "FILE"
+      ],
+      "seconds": 30.245,
+      "all_seconds": [
+        30.232,
+        30.681,
+        30.245
+      ],
+      "peak_mib": 10.8,
+      "output_bytes": 149,
+      "output": "same values"
+    },
+    {
+      "workload": "sum by",
+      "what": "total latency per service",
+      "tool": "jq",
+      "command": [
+        "jq",
+        "-nc",
+        "reduce inputs as $x ({}; .[$x.service] += $x.latency_ms)",
+        "FILE"
+      ],
+      "seconds": 30.831,
+      "all_seconds": [
+        30.966,
+        30.831,
+        30.685
+      ],
+      "peak_mib": 6.0,
+      "output_bytes": 256,
+      "output": "reference"
+    },
+    {
+      "workload": "sum by",
+      "what": "total latency per service",
+      "tool": "jvqq",
+      "command": [
+        "jvqq",
+        "-c",
+        "group_by(.service; {ms: sum(.latency_ms)})",
+        "FILE"
+      ],
+      "seconds": 1.179,
+      "all_seconds": [
+        1.179,
+        1.165,
+        1.18
+      ],
+      "peak_mib": 50.3,
+      "output_bytes": 339,
+      "output": "same values"
+    },
+    {
+      "workload": "sum by",
+      "what": "total latency per service",
+      "tool": "jvqq, jq's filter",
+      "command": [
+        "jvqq",
+        "-nc",
+        "reduce inputs as $x ({}; .[$x.service] += $x.latency_ms)",
+        "FILE"
+      ],
+      "seconds": 12.965,
+      "all_seconds": [
+        12.965,
+        12.953,
+        12.989
+      ],
+      "peak_mib": 24.9,
+      "output_bytes": 256,
+      "output": "same values"
+    },
+    {
+      "workload": "sum by",
+      "what": "total latency per service",
+      "tool": "qj",
+      "command": [
+        "qj",
+        "-nc",
+        "reduce inputs as $x ({}; .[$x.service] += $x.latency_ms)",
+        "FILE"
+      ],
+      "seconds": 10.447,
+      "all_seconds": [
+        10.446,
+        10.447,
+        10.501
+      ],
+      "peak_mib": 18.7,
+      "output_bytes": 256,
+      "output": "same values"
+    },
+    {
+      "workload": "sum by",
+      "what": "total latency per service",
+      "tool": "jaq",
+      "command": [
+        "jaq",
+        "-nc",
+        "reduce inputs as $x ({}; .[$x.service] += $x.latency_ms)",
+        "FILE"
+      ],
+      "seconds": 16.396,
+      "all_seconds": [
+        16.368,
+        20.156,
+        16.396
+      ],
+      "peak_mib": 1038.1,
+      "output_bytes": 256,
+      "output": "same values"
+    },
+    {
+      "workload": "sum by",
+      "what": "total latency per service",
+      "tool": "gojq",
+      "command": [
+        "gojq",
+        "-nc",
+        "reduce inputs as $x ({}; .[$x.service] += $x.latency_ms)",
+        "FILE"
+      ],
+      "seconds": 30.525,
+      "all_seconds": [
+        30.361,
+        30.546,
+        30.525
+      ],
+      "peak_mib": 12.3,
+      "output_bytes": 256,
+      "output": "same values"
+    }
+  ],
+  "big_file": {
+    "file_bytes": 6442451265,
+    "file_lines": 18440091,
+    "runs": [
+      {
+        "workload": "count",
+        "command": [
+          "jvqq",
+          "count",
+          "FILE"
+        ],
+        "seconds": 4.359,
+        "peak_mib": 68.0,
+        "exit": 0,
+        "check": "every line counted"
+      },
+      {
+        "workload": "count by",
+        "command": [
+          "jvqq",
+          "-c",
+          "count_by(.level)",
+          "FILE"
+        ],
+        "seconds": 5.717,
+        "peak_mib": 69.3,
+        "exit": 0,
+        "check": "counts add up to the lines"
+      },
+      {
+        "workload": "select",
+        "command": [
+          "jvqq",
+          "-c",
+          "select(.level == \"error\") | .ts",
+          "FILE"
+        ],
+        "seconds": 5.389,
+        "peak_mib": 68.2,
+        "exit": 0,
+        "check": "2303691 lines out"
+      },
+      {
+        "workload": "reformat",
+        "command": [
+          "jvqq",
+          "-c",
+          ".",
+          "FILE"
+        ],
+        "seconds": 14.126,
+        "peak_mib": 61.6,
+        "exit": 0,
+        "check": "one output line per input line"
+      }
+    ]
+  }
+}
