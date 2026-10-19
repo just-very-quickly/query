@@ -43,9 +43,9 @@ func addMoreBuiltins(m map[string]builtinFn) {
 		"atan": math.Atan, "atanh": math.Atanh, "cbrt": math.Cbrt, "cos": math.Cos,
 		"cosh": math.Cosh, "sin": math.Sin, "sinh": math.Sinh, "tan": math.Tan, "tanh": math.Tanh,
 		"expm1": math.Expm1, "log1p": math.Log1p, "logb": math.Logb, "tgamma": math.Gamma,
-		"gamma": func(x float64) float64 { v, _ := math.Lgamma(x); return v },
+		"gamma":  func(x float64) float64 { v, _ := math.Lgamma(x); return v },
 		"lgamma": func(x float64) float64 { v, _ := math.Lgamma(x); return v },
-		"j0": math.J0, "j1": math.J1, "y0": math.Y0, "y1": math.Y1,
+		"j0":     math.J0, "j1": math.J1, "y0": math.Y0, "y1": math.Y1,
 		"rint": math.RoundToEven, "nearbyint": math.RoundToEven, "pow10": func(x float64) float64 { return math.Pow(10, x) },
 		"significand": func(x float64) float64 {
 			if x == 0 || math.IsInf(x, 0) || math.IsNaN(x) {
@@ -61,11 +61,11 @@ func addMoreBuiltins(m map[string]builtinFn) {
 		"atan2": math.Atan2, "fmin": math.Min, "fmax": math.Max, "fmod": math.Mod, "hypot": math.Hypot,
 		"copysign": math.Copysign, "drem": math.Remainder, "remainder": math.Remainder, "nextafter": math.Nextafter,
 		"nexttoward": math.Nextafter, "fdim": func(a, b float64) float64 { return math.Max(a-b, 0) },
-		"ldexp": func(a, b float64) float64 { return math.Ldexp(a, int(b)) },
-		"scalb": func(a, b float64) float64 { return a * math.Pow(2, b) },
+		"ldexp":   func(a, b float64) float64 { return math.Ldexp(a, int(b)) },
+		"scalb":   func(a, b float64) float64 { return a * math.Pow(2, b) },
 		"scalbln": func(a, b float64) float64 { return math.Ldexp(a, int(b)) },
-		"jn": func(n, x float64) float64 { return math.Jn(int(n), x) },
-		"yn": func(n, x float64) float64 { return math.Yn(int(n), x) },
+		"jn":      func(n, x float64) float64 { return math.Jn(int(n), x) },
+		"yn":      func(n, x float64) float64 { return math.Yn(int(n), x) },
 	} {
 		m[name+"/2"] = math2(f)
 	}

@@ -872,7 +872,7 @@ func init() {
 			}
 			return sortByKeys(a, identityKeys(a)), nil
 		}),
-		"sort_by/1": byFilter("sorted", func(a []any, ks [][]any) (any, error) { return sortByKeys(a, ks), nil }),
+		"sort_by/1":  byFilter("sorted", func(a []any, ks [][]any) (any, error) { return sortByKeys(a, ks), nil }),
 		"group_by/1": byFilter("grouped", func(a []any, ks [][]any) (any, error) { return groupSorted(a, ks), nil }),
 		"unique/0": simple(func(in any) (any, error) {
 			a, err := arrayOf(in, "sorted")
@@ -982,12 +982,12 @@ func init() {
 			}
 			return rec
 		}),
-		"env/0": simple(func(any) (any, error) { return envObject(), nil }),
+		"env/0":   simple(func(any) (any, error) { return envObject(), nil }),
 		"error/0": simple(func(in any) (any, error) { return nil, &RuntimeError{jv.Norm(in)} }),
 		"error/1": withValues(func(_ any, a []any) (any, error) { return nil, &RuntimeError{jv.Norm(a[0])} }),
-		"first/0":  simple(func(in any) (any, error) { return indexValue(in, jv.Num(0)) }),
-		"last/0":   simple(func(in any) (any, error) { return indexValue(in, jv.Num(-1)) }),
-		"nth/1": withValues(func(in any, a []any) (any, error) { return indexValue(in, a[0]) }),
+		"first/0": simple(func(in any) (any, error) { return indexValue(in, jv.Num(0)) }),
+		"last/0":  simple(func(in any) (any, error) { return indexValue(in, jv.Num(-1)) }),
+		"nth/1":   withValues(func(in any, a []any) (any, error) { return indexValue(in, a[0]) }),
 		"first/1": withFilters(func(f []filter) filter { return limitFilter(func(*env, any, emitFn) error { return nil }, f[0], 1) }),
 		"last/1": withFilters(func(f []filter) filter {
 			return func(e *env, in any, out emitFn) error {

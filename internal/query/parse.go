@@ -35,15 +35,15 @@ type (
 		target node
 		opt    bool
 	}
-	nTry     struct {
+	nTry struct {
 		body, catch node // catch may be nil; nil catch with silent=true is "?"
 	}
-	nPipe   struct{ left, right node }
-	nComma  struct{ left, right node }
-	nAlt    struct{ left, right node }
-	nAnd    struct{ left, right node }
-	nOr     struct{ left, right node }
-	nBinop  struct {
+	nPipe  struct{ left, right node }
+	nComma struct{ left, right node }
+	nAlt   struct{ left, right node }
+	nAnd   struct{ left, right node }
+	nOr    struct{ left, right node }
+	nBinop struct {
 		op          string
 		left, right node
 	}
@@ -58,9 +58,9 @@ type (
 	nObject struct{ entries []objEntry }
 	nIf     struct{ cond, then, els node } // els nil means "else ."
 	nReduce struct {
-		source             node
-		name               string
-		init, update       node
+		source       node
+		name         string
+		init, update node
 	}
 	nForeach struct {
 		source                node
@@ -140,7 +140,7 @@ func describeTok(t token) string {
 }
 
 func (p *parser) peek() token { return p.toks[p.i] }
-func (p *parser) next() token  { t := p.toks[p.i]; p.i++; return t }
+func (p *parser) next() token { t := p.toks[p.i]; p.i++; return t }
 
 func (p *parser) isOp(s string) bool {
 	t := p.peek()

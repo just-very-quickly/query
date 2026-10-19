@@ -82,7 +82,7 @@ func describe(v any) string {
 type compiler struct {
 	vars        map[string]int  // variables in scope (count of bindings)
 	globalNames map[string]bool // variables given on the command line
-	agg  *aggCollector  // set while compiling the aggregation step
+	agg         *aggCollector   // set while compiling the aggregation step
 }
 
 func (c *compiler) withVar(name string, f func() (filter, error)) (filter, error) {

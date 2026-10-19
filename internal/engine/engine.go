@@ -61,7 +61,7 @@ type Input struct {
 type chunk struct {
 	seq      int
 	file     string
-	line     int  // line number of the first byte
+	line     int // line number of the first byte
 	data     []byte
 	buf      *[]byte // the pooled buffer data lives in, returned after use
 	document bool    // values may span lines; already checked by the reader
@@ -81,7 +81,7 @@ type result struct {
 	firstBad string
 	values   []any // -s: the decoded values
 	chunk    *chunk
-	fatal    error             // --strict: stop here
+	fatal    error            // --strict: stop here
 	halt     *query.HaltError // halt or halt_error: stop here
 }
 
