@@ -164,8 +164,12 @@ func lenientLiteral(tok string) (any, bool) {
 		neg = t[0] == '-'
 		t = t[1:]
 	}
-	switch strings.ToLower(t) {
-	case "nan", "snan":
+	low := strings.ToLower(t)
+	if strings.HasPrefix(low, "nan") && strings.Trim(low[3:], "0123456789") == "" {
+		return Num(math.NaN()), true // jq reads nan followed by digits as NaN
+	}
+	switch low {
+	case "snan":
 		return Num(math.NaN()), true
 	case "inf", "infinity":
 		if neg {

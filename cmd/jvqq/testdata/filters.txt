@@ -507,3 +507,22 @@
 -nc	{"a":1} | try delpaths([[0]]) catch ., try delpaths([[null]]) catch .
 -nc	1, "s" | try delpaths([[0]]) catch .
 -c	[.tags?[]?] | flatten
+# fixed after the second check
+-nc	[1,2,3] | .[nan], .[nan:], .[:nan], .[nan:nan], getpath([nan]), (.[nan]?), (try (.[nan] = 1) catch .), (try setpath([nan]; 9) catch .), (try (.[nan:] = ["x"]) catch .)
+-nc	[1,2,3] | .[-1.2], .[-0.5], .[-2.5], .[-3.5], .[1.7], (.[-1.2] = 9), (.[1.5] = 9), del(.[-1.5]), .[1.2:2.5], .[-1.5:]
+-nc	[1e17], [1e300], [[1],"ab"], ["",[1]], [true], [[]], [null] | try transpose catch .
+-nc	(["a"] | join(1)), (["a","b"] | join(null)), (["a","b"] | try join(1) catch .), (["a","b"] | try join([]) catch .)
+-nc	"a\u0000b" | @html, @sh, @text, @json, (["a\u0000b", 1] | @csv, @tsv), @html "<\(.)>"
+-nc	1 | try @csv catch ., try @tsv catch ., try implode catch ., try min catch ., try max catch .
+-nc	1.000 | try @base64d catch .
+-nc	{"a":1}, {}, null, 1, "a", true | try sort_by(.) catch ., try group_by(.) catch ., try unique_by(.) catch ., try min_by(.) catch ., try max_by(.) catch ., try unique catch ., try sort catch .
+-nc	" 1", "1.e3", "-nan", "+nan", "1\u0000x", "[1]", "1 2", "", "01", "nan1" | try tonumber catch .
+-nc	"nan1", "[NaN12, -nan1]" | fromjson
+-nc	"a\udfff", "\udc00𐀀", "\udfffb" | [., length]
+-nc	1, "x", [1], [1,2,3,4,5,"x"] | try mktime catch .
+-nc	1e20, 1e17, 6.7e16, -6.7e16, 6.8e16, -6.8e16, nan | try todate catch .
+-nc	1e20 | try gmtime catch ., try strftime("%Y") catch .
+-nc	reduce range(257) as $i (0; [.]), (reduce range(257) as $i (0; {a:.}) | tojson | length)
+-n	reduce range(257) as $i (0; [.])
+-nc	try ("€€€€€€" + 1) catch ., try path("abcdefghijklmnopqrstuvwxyz01") catch ., try path("abcdefghijklmnopqrstuvwxyz0") catch .
+-c	[.tags?[]?] | try (.[nan:] = ["x"]) catch .

@@ -17,6 +17,22 @@ import (
 
 // formatter returns the @format function name stands for.
 func formatter(name string) (func(any) (any, error), error) {
+	f, err := formatter1(name)
+	switch name {
+	case "html", "sh", "csv", "tsv":
+		// jq writes a NUL character in these as the two characters \0
+		return func(v any) (any, error) {
+			r, err := f(v)
+			if s, ok := r.(string); ok && strings.IndexByte(s, 0) >= 0 {
+				r = strings.ReplaceAll(s, "\x00", `\0`)
+			}
+			return r, err
+		}, err
+	}
+	return f, err
+}
+
+func formatter1(name string) (func(any) (any, error), error) {
 	switch name {
 	case "", "text":
 		return func(v any) (any, error) { return toString(v), nil }, nil
@@ -27,7 +43,7 @@ func formatter(name string) (func(any) (any, error), error) {
 		return func(v any) (any, error) {
 			a, ok := jv.Norm(v).([]any)
 			if !ok {
-				return nil, errorf("%s cannot be %s-formatted, only an array can be", describe(v), name)
+				return nil, errorf("%s cannot be %s-formatted, only array", describe(v), name)
 			}
 			var sb strings.Builder
 			for i, x := range a {
@@ -113,15 +129,15 @@ func formatter(name string) (func(any) (any, error), error) {
 			}
 			for i := 0; i < len(s); i++ {
 				if strings.IndexByte(base64Alphabet, s[i]) < 0 {
-					return nil, errorf("%s is not valid base64 data", describe(v))
+					return nil, errorf("%s is not valid base64 data", describe(toString(v)))
 				}
 			}
 			if len(s)%4 == 1 {
-				return nil, errorf("%s trailing base64 byte found", describe(v))
+				return nil, errorf("%s trailing base64 byte found", describe(toString(v)))
 			}
 			b, err := base64.RawStdEncoding.DecodeString(s)
 			if err != nil {
-				return nil, errorf("%s is not valid base64 data", describe(v))
+				return nil, errorf("%s is not valid base64 data", describe(toString(v)))
 			}
 			return validUTF8(b), nil
 		}, nil

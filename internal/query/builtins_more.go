@@ -134,18 +134,26 @@ func addMoreBuiltins(m map[string]builtinFn) {
 		if !ok {
 			return nil, errorf("Cannot iterate over %s", describe(in))
 		}
-		maxLen := 0
+		// def transpose: [range(0; map(length) | max // 0) as $i | [.[][$i]]];
+		// so a row that can't be indexed by number fails at the first column.
+		maxLen := 0.0
 		for _, r := range rows {
 			l, err := lengthOf(r)
 			if err != nil {
 				return nil, err
 			}
-			if n := int(l.(jv.Number).F); n > maxLen {
-				maxLen = n
+			maxLen = max(maxLen, l.(jv.Number).F)
+		}
+		if maxLen > 0 {
+			for _, r := range rows {
+				if k := jv.KindOf(r); k != jv.KArray && k != jv.KNull {
+					return nil, errorf("Cannot index %s with number", jv.TypeName(r))
+				}
 			}
 		}
-		out := make([]any, maxLen)
-		for j := 0; j < maxLen; j++ {
+		maxLen = math.Ceil(maxLen)
+		out := make([]any, int(maxLen))
+		for j := 0; j < int(maxLen); j++ {
 			col := make([]any, len(rows))
 			for i, r := range rows {
 				v, err := indexValue(r, jv.Num(float64(j)))
@@ -314,12 +322,19 @@ func addMoreBuiltins(m map[string]builtinFn) {
 		if !ok {
 			return nil, errorf("halt_error/1: number required")
 		}
-		return nil, &HaltError{Code: int(n.F), Value: jv.Detach(in), HasValue: true}
+		code := int(n.F)
+		if code < 0 {
+			code = 0 // what jq 1.7.1 exits with
+		}
+		return nil, &HaltError{Code: code, Value: jv.Detach(in), HasValue: true}
 	})
 	m["gmtime/0"] = simple(func(in any) (any, error) {
 		n, ok := jv.AsNumber(in)
 		if !ok {
 			return nil, errorf("gmtime() requires a number")
+		}
+		if err := timeInRange(n.F); err != nil {
+			return nil, err
 		}
 		return brokenDown(n.F, time.UTC), nil
 	})
@@ -327,6 +342,9 @@ func addMoreBuiltins(m map[string]builtinFn) {
 		n, ok := jv.AsNumber(in)
 		if !ok {
 			return nil, errorf("localtime() requires a number")
+		}
+		if err := timeInRange(n.F); err != nil {
+			return nil, err
 		}
 		return brokenDown(n.F, time.Local), nil
 	})
@@ -528,6 +546,22 @@ func joinFilter(idxF, stream, key, join filter) filter {
 
 // brokenDown is jq's "broken down time": [year, month (0-11), day,
 // hours, minutes, seconds (with fraction), weekday, day of the year (0-)].
+// The seconds glibc's gmtime can convert: the year has to fit an int.
+var (
+	minTime = time.Date(-2147483648+1900, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
+	maxTime = time.Date(2147483647+1900, 12, 31, 23, 59, 59, 0, time.UTC).Unix()
+)
+
+func timeInRange(secs float64) error {
+	if math.IsNaN(secs) || secs < -1e18 || secs > 1e18 {
+		return errorf("error converting number of seconds since epoch to datetime")
+	}
+	if t := int64(math.Trunc(secs)); t < minTime || t > maxTime {
+		return errorf("error converting number of seconds since epoch to datetime")
+	}
+	return nil
+}
+
 func brokenDown(secs float64, loc *time.Location) []any {
 	// As jq: the whole seconds are truncated toward zero, and the seconds
 	// field gets the fraction above the floor.
@@ -543,8 +577,11 @@ func brokenDown(secs float64, loc *time.Location) []any {
 
 func fromBrokenDown(in any, name string, loc *time.Location) (time.Time, error) {
 	a, ok := jv.Norm(in).([]any)
+	if !ok && name == "mktime" {
+		return time.Time{}, errorf("mktime requires array inputs")
+	}
 	if !ok || len(a) < 6 {
-		return time.Time{}, errorf("%s requires array of 6 numbers", name)
+		return time.Time{}, errorf("%s requires parsed datetime inputs", name)
 	}
 	var f [6]float64
 	for i := 0; i < 6; i++ {

@@ -40,7 +40,14 @@ func newline(buf []byte, f Format, level int) []byte {
 	return buf
 }
 
+// maxPrintDepth: as jq, values nested deeper are written as
+// <skipped: too deep>.
+const maxPrintDepth = 256
+
 func encode(buf []byte, v any, f Format, level int) []byte {
+	if level > maxPrintDepth {
+		return append(buf, "<skipped: too deep>"...)
+	}
 	switch x := v.(type) {
 	case nil:
 		return append(buf, "null"...)
@@ -110,6 +117,15 @@ func encode(buf []byte, v any, f Format, level int) []byte {
 // encodeRaw writes raw JSON text in jq's format without decoding it, except
 // for objects with duplicate keys or when keys are sorted.
 func encodeRaw(buf []byte, r Raw, f Format, level int) []byte {
+	if level > maxPrintDepth {
+		return append(buf, "<skipped: too deep>"...)
+	}
+	// A raw value can't hold more than len/2 levels; only a deep one placed
+	// deep in a built value can pass the limit, and is written the long way.
+	if level+len(r)/2 > maxPrintDepth && level+rawDepth(r) > maxPrintDepth {
+		v, _ := DecodeValid(r, 0)
+		return encode(buf, v, f, level)
+	}
 	switch r[0] {
 	case '"':
 		if body, ok := plainASCII(r); ok {
@@ -171,6 +187,27 @@ func encodeRaw(buf []byte, r Raw, f Format, level int) []byte {
 
 // plainASCII returns the body of a raw string that jq would write byte for
 // byte: printable ASCII with no escapes.
+// rawDepth is how deeply the valid JSON text r nests.
+func rawDepth(r Raw) int {
+	d, best := 0, 0
+	for i := 0; i < len(r); i++ {
+		switch r[i] {
+		case '"':
+			for i++; r[i] != '"'; i++ {
+				if r[i] == '\\' {
+					i++
+				}
+			}
+		case '[', '{':
+			d++
+			best = max(best, d)
+		case ']', '}':
+			d--
+		}
+	}
+	return best
+}
+
 func plainASCII(r Raw) ([]byte, bool) {
 	body := r[1 : len(r)-1]
 	for _, c := range body {

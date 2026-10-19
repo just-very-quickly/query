@@ -212,20 +212,19 @@ func toNumber(in any) (any, error) {
 	case jv.KNumber:
 		return in, nil
 	case jv.KString:
+		// As jq: the string is parsed as JSON (up to a NUL character, as jq
+		// reads it as a C string), and must give a number.
 		s := jv.Str(in)
-		// As jq, the string is parsed as JSON: surrounding whitespace is
-		// allowed and the literal keeps its digits.
-		lit := strings.Trim(s, " \t\r\n")
-		if lit != "" && jv.KindOf(jv.Raw(lit)) == jv.KNumber {
-			if end, err := jv.Valid([]byte(lit), 0); err == nil && end == len(lit) {
-				return jv.NumberFromLit(lit), nil
-			}
+		if i := strings.IndexByte(s, 0); i >= 0 {
+			s = s[:i]
 		}
-		t := strings.TrimSpace(s)
-		if f, err := strconv.ParseFloat(t, 64); err == nil && t != "" && !strings.ContainsAny(t, "xXpP_") {
-			return jv.Num(f), nil
+		v, err := jv.Decode([]byte(s))
+		if err != nil {
+			return nil, errorf("%s (while parsing '%s')", err.Error(), s)
 		}
-		return nil, errorf("Cannot parse '%s' as JSON", s)
+		if jv.KindOf(v) == jv.KNumber {
+			return v, nil
+		}
 	}
 	return nil, errorf("%s cannot be parsed as a number", describe(in))
 }
@@ -274,9 +273,9 @@ func keysBy(e *env, f filter, a []any) ([][]any, error) {
 func byFilter(what string, f func(a []any, ks [][]any) (any, error)) builtinFn {
 	return withFilters(func(args []filter) filter {
 		return func(e *env, in any, out emitFn) error {
-			a, err := arrayOf(in, what)
-			if err != nil {
-				return err
+			a, ok := jv.Norm(in).([]any)
+			if !ok {
+				return byFilterError(e, args[0], in, what)
 			}
 			ks, err := keysBy(e, args[0], a)
 			if err != nil {
@@ -393,7 +392,7 @@ func flatten(a []any, depth float64, out []any) []any {
 func implode(in any) (any, error) {
 	a, ok := jv.Norm(in).([]any)
 	if !ok {
-		return nil, errorf("Cannot implode %s", describe(in))
+		return nil, errorf("implode input must be an array")
 	}
 	var sb strings.Builder
 	for _, v := range a {
@@ -417,6 +416,36 @@ func strFn(name string, f func(s string) any) builtinFn {
 		}
 		return f(jv.Str(in)), nil
 	})
+}
+
+// byFilterError is the error of sort_by and the like on a value that isn't
+// an array. jq defines them as an implementation over map([f]), so an
+// object first has f run on its values, and the message shows both.
+func byFilterError(e *env, f filter, in any, what string) error {
+	o, ok := jv.Norm(in).(*jv.Object)
+	if !ok {
+		return errorf("Cannot iterate over %s", describe(in))
+	}
+	keys := []any{}
+	for _, v := range o.Vals {
+		var k []any
+		if err := f(e, v, func(x any) error { k = append(k, x); return nil }); err != nil {
+			return err
+		}
+		keys = append(keys, k)
+	}
+	if what == "iterated over" {
+		return errorf("%s and %s cannot be iterated over", describe(in), describe(keys))
+	}
+	return errorf("%s and %s cannot be sorted, as they are not both arrays", describe(in), describe(keys))
+}
+
+// minMaxInput is min and max's array, with jq's message otherwise.
+func minMaxInput(in any) ([]any, error) {
+	if a, ok := jv.Norm(in).([]any); ok {
+		return a, nil
+	}
+	return nil, errorf("%s and %s cannot be iterated over", describe(in), describe(in))
 }
 
 // flattenInput is what flatten iterates: an array's elements or an
@@ -443,14 +472,18 @@ func joinArray(in, sep any) (any, error) {
 	if len(a) == 0 {
 		return "", nil
 	}
-	if jv.KindOf(sep) != jv.KString {
-		return nil, errorf("%s and %s cannot be added", describe(""), describe(sep))
-	}
-	s := jv.Str(sep)
+	// jq: the separator is added between elements only, and null adds
+	// nothing.
 	var sb strings.Builder
 	for i, v := range a {
 		if i > 0 {
-			sb.WriteString(s)
+			switch jv.KindOf(sep) {
+			case jv.KNull:
+			case jv.KString:
+				sb.WriteString(jv.Str(sep))
+			default:
+				return nil, errorf("%s and %s cannot be added", describe(sb.String()), describe(sep))
+			}
 		}
 		switch jv.KindOf(v) {
 		case jv.KNull:
@@ -904,23 +937,25 @@ func init() {
 		}),
 		"sort_by/1":  byFilter("sorted", func(a []any, ks [][]any) (any, error) { return sortByKeys(a, ks), nil }),
 		"group_by/1": byFilter("grouped", func(a []any, ks [][]any) (any, error) { return groupSorted(a, ks), nil }),
-		"unique/0": simple(func(in any) (any, error) {
-			a, err := arrayOf(in, "sorted")
-			if err != nil {
-				return nil, err
-			}
-			return uniqueSorted(a, identityKeys(a)), nil
-		}),
+		"unique/0": func(*compiler, []node) (filter, error) {
+			return func(e *env, in any, out emitFn) error {
+				a, ok := jv.Norm(in).([]any)
+				if !ok {
+					return byFilterError(e, identity, in, "sorted")
+				}
+				return out(uniqueSorted(a, identityKeys(a)))
+			}, nil
+		},
 		"unique_by/1": byFilter("sorted", func(a []any, ks [][]any) (any, error) { return uniqueSorted(a, ks), nil }),
 		"min/0": simple(func(in any) (any, error) {
-			a, err := arrayOf(in, "sorted")
+			a, err := minMaxInput(in)
 			if err != nil {
 				return nil, err
 			}
 			return extremeBy(a, identityKeys(a), false), nil
 		}),
 		"max/0": simple(func(in any) (any, error) {
-			a, err := arrayOf(in, "sorted")
+			a, err := minMaxInput(in)
 			if err != nil {
 				return nil, err
 			}
@@ -1461,6 +1496,9 @@ func timeOf(in any, name string) (time.Time, error) {
 	if !ok {
 		return time.Time{}, errorf("%s requires parsed datetime inputs", name)
 	}
+	if err := timeInRange(n.F); err != nil {
+		return time.Time{}, err
+	}
 	return time.Unix(int64(math.Trunc(n.F)), 0).UTC(), nil // jq truncates toward zero
 }
 
@@ -1610,3 +1648,6 @@ func strftime(t time.Time, f string) string {
 	}
 	return sb.String()
 }
+
+// identity is the filter `.`.
+func identity(_ *env, in any, out emitFn) error { return out(in) }

@@ -63,7 +63,8 @@ with exit code 2.
 **JSON Lines.** By default each line holds one JSON value. Lines may end in
 `\n` or `\r\n`, blank lines are skipped, and the last line doesn't need a
 newline. A line may hold several values separated by spaces (`1 2 3`), as jq
-allows. A byte order mark at the start of a file is skipped.
+allows. A byte order mark at the start of the input (the first file) is
+skipped, as jq does; with `-R` it is kept.
 
 **What counts as JSON.** As in jq: numbers may also be written `01`, `.5`,
 `1.`, `+1` or `1.e3` (they print as jq prints them: `1`, `0.5`, `1`, `1`,
@@ -77,9 +78,10 @@ program writes slowly (`tail -f app.jsonl | jvqq ...`) are processed when
 they come, without waiting for a full chunk. Add `--unbuffered` to have the
 output written out right away too.
 
-**Other JSON.** If the start of the input holds a value that spans lines,
-such as pretty-printed JSON, jvqq reads the whole input value by value
-instead. It is still cut into chunks at value boundaries and split between
+**Other JSON.** If the first chunk of the input (1 MiB) holds a value that
+spans lines, such as pretty-printed JSON (also after values that fit on one
+line, as `jq .` writes `{}` or a number), jvqq reads the whole input value
+by value instead. It is still cut into chunks at value boundaries and split between
 workers.
 
 **Compression.** gzip and zstd input is recognized by its first bytes, in
@@ -301,6 +303,10 @@ These are refused with a compile error (exit code 3) that names the feature:
   `get_prog_origin`, `get_jq_origin`
 - `input_line_number`, `$__prog_args`
 - `{$__loc__}` as an object key (`$__loc__` itself works)
+
+Recursive filters (`recurse`, `until`, `repeat`) use the Go stack: millions
+of levels deep (`[0 | recurse(.+1; . < 3000000)]`) can exhaust it and stop
+jvqq, where jq goes on.
 
 The math functions use Go's math library and many can differ from jq (which
 uses the C library) in the last digit: `log`, `cbrt`, `tan`, `exp10`,

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/just-very-quickly/query/internal/jv"
 )
@@ -65,17 +64,20 @@ func (b *breakErr) Error() string { return "break" }
 func newBreak() *breakErr { return &breakErr{new(int)} }
 
 // describe writes a value the way jq does in error messages: its type and
-// a shortened dump, such as: string ("abc"). jq keeps up to 14 bytes of the
-// dump; a longer one is cut to 11 bytes and "...".
-func describe(v any) string {
+// a shortened dump, such as: string ("abc").
+// truncDump is jq's jv_dump_string_trunc into a buffer of size bytes: the
+// compact dump if it fits in size-1 bytes, or its first size-4 bytes and
+// "...". The cut can split a character; jq then shows U+FFFD for it.
+func truncDump(v any, size int) string {
 	s := string(jv.Encode(nil, v, jv.Format{Compact: true}))
-	if len(s) > 14 {
-		cut := 11
-		for cut > 0 && !utf8.RuneStart(s[cut]) {
-			cut--
-		}
-		s = s[:cut] + "..."
+	if len(s) > size-1 {
+		s = jv.ToValidUTF8(s[:size-4] + "...")
 	}
+	return s
+}
+
+func describe(v any) string {
+	s := truncDump(v, 15)
 	return fmt.Sprintf("%s (%s)", jv.TypeName(v), s)
 }
 
@@ -417,7 +419,12 @@ func indexValue(t, k any) (any, error) {
 		case jv.KNull:
 			return nil, nil
 		case jv.KArray:
-			i := math.Floor(n.F)
+			// As jq: NaN gives null; otherwise truncate toward zero, then
+			// count from the end if negative.
+			if math.IsNaN(n.F) {
+				return nil, nil
+			}
+			i := math.Trunc(n.F)
 			if r, ok := jv.RawOf(t); ok {
 				if i < 0 {
 					i += float64(jv.Len(r))
@@ -556,6 +563,12 @@ func sliceBounds(n int, from, to any) (int, int, error) {
 		end = t.F
 	}
 	ln := float64(n)
+	if math.IsNaN(start) {
+		start = 0
+	}
+	if math.IsNaN(end) {
+		end = ln
+	}
 	if start < 0 {
 		start += ln
 	}

@@ -268,13 +268,7 @@ func isRuntime(err error) bool {
 	return ok
 }
 
-func shortJSON(v any) string {
-	s := string(jv.Encode(nil, v, jv.Format{Compact: true}))
-	if len(s) > 11 {
-		s = s[:10] + "..."
-	}
-	return s
-}
+func shortJSON(v any) string { return truncDump(v, 30) }
 
 // pathCall handles the builtins that are path expressions.
 func (c *compiler) pathCall(x nCall) (pathFilter, bool, error) {
@@ -530,7 +524,10 @@ func setPath(root any, p []any, val any) (any, error) {
 		default:
 			return nil, errorf("Cannot index %s with number", jv.TypeName(cur))
 		}
-		i := math.Floor(kk.F)
+		if math.IsNaN(kk.F) {
+			return nil, errorf("Cannot set array element at NaN index")
+		}
+		i := math.Trunc(kk.F)
 		if i < 0 {
 			i += float64(len(a))
 			if i < 0 {
@@ -624,7 +621,10 @@ func delPath(root any, p []any) (any, error) {
 			a := c
 			switch kk := k.(type) {
 			case jv.Number:
-				i := int(math.Floor(kk.F))
+				if math.IsNaN(kk.F) {
+					return a, nil // jq loops forever here; leave it as it is
+				}
+				i := int(math.Trunc(kk.F))
 				if i < 0 {
 					i += len(a)
 					if i < 0 {

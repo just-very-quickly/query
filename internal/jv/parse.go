@@ -332,10 +332,9 @@ func validStringFrom(b []byte, i int) (int, error) {
 					return i, synErr(i, "Invalid escape")
 				}
 				i += 6
-				if utf16.IsSurrogate(r) {
-					if r >= 0xdc00 {
-						return i, synErr(i, "Invalid \\uXXXX\\uXXXX surrogate pair escape")
-					}
+				// A lone low surrogate becomes U+FFFD, as in jq; a high one
+				// must be followed by a low one.
+				if r >= 0xd800 && r < 0xdc00 {
 					if len(b)-i < 6 && couldBeEscape(b[i:]) {
 						return len(b), eofErr(len(b), "Unfinished string")
 					}
@@ -404,6 +403,9 @@ func hex4(b []byte, i int) (rune, bool) {
 // Decode parses the single JSON value in b (surrounding whitespace allowed).
 func Decode(b []byte) (any, error) {
 	i := SkipSpace(b, 0)
+	if i == len(b) {
+		return nil, synErr(i, "Expected JSON value")
+	}
 	end, err := Valid(b, i)
 	if err != nil {
 		if vals, ok := DecodeLenient(b); ok && len(vals) == 1 {
@@ -562,7 +564,7 @@ func unescape(b []byte, i int) (string, int) {
 			case 'u':
 				r, _ := hex4(b, i+2)
 				i += 6
-				if utf16.IsSurrogate(r) {
+				if r >= 0xd800 && r < 0xdc00 { // a pair (checked by Valid); a lone low surrogate gives U+FFFD below
 					r2, _ := hex4(b, i+2)
 					r = utf16.DecodeRune(r, r2)
 					i += 6

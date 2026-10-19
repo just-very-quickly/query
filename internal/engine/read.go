@@ -59,12 +59,15 @@ func openInput(in Input) (io.ReadCloser, error) {
 func (r *run) read(inputs []Input, chunks chan<- *chunk) int {
 	code := ExitOK
 	seq := 0
-	for _, in := range inputs {
+	for k, in := range inputs {
 		select {
 		case <-r.stop:
 			return code
 		default:
 		}
+		// As jq: a byte order mark is skipped at the start of the input as
+		// a whole (the first file), and kept with -R.
+		r.skipBOM = k == 0 && !r.cfg.RawInput
 		if in.Path != "" {
 			if done, err := r.readMapped(in, chunks, &seq); done {
 				if err == errFault {
@@ -116,7 +119,7 @@ func (r *run) readMapped(in Input, chunks chan<- *chunk, seq *int) (done bool, e
 		}
 	}()
 	start := 0
-	if hasBOM(data) {
+	if r.skipBOM && hasBOM(data) {
 		start = 3 // as jq, a byte order mark at the start is skipped
 	}
 	head := data[start:min(len(data), start+r.cfg.ChunkSize)]
@@ -223,7 +226,7 @@ func (r *run) readOne(name string, rd io.Reader, chunks chan<- *chunk, seq *int,
 		}
 		if first {
 			first = false
-			if hasBOM(buf[:n]) {
+			if r.skipBOM && hasBOM(buf[:n]) {
 				copy(buf, buf[3:n])
 				n -= 3
 			}
@@ -290,17 +293,40 @@ func (r *run) readOne(name string, rd io.Reader, chunks chan<- *chunk, seq *int,
 
 // isDocument reports whether the input starts with a value that spans
 // lines, so it can't be cut at newlines.
+// It looks at every value in b (the first chunk), so a file like jq's
+// output, where the first values fit on a line ({} or a number) and later
+// ones don't, is still read as a document. Lines that aren't valid JSON
+// don't count either way; a value cut off at the end of b counts if its
+// first line is a lone { or [.
 func isDocument(b []byte) bool {
-	s := jv.SkipSpace(b, 0)
-	if s == len(b) {
-		return false
-	}
-	end, err := jv.Valid(b, s)
-	if err == nil {
-		return bytes.IndexByte(b[s:end], '\n') >= 0
-	}
-	if err.(*jv.SyntaxError).EOF {
-		return bytes.IndexByte(b[s:], '\n') >= 0
+	i := jv.SkipSpace(b, 0)
+	for i < len(b) {
+		end, err := jv.Valid(b, i)
+		if err == nil {
+			if bytes.IndexByte(b[i:end], '\n') >= 0 {
+				return true
+			}
+			i = jv.SkipSpace(b, end)
+			continue
+		}
+		if err.(*jv.SyntaxError).EOF {
+			// Cut off by the end of the chunk: pretty-printed JSON if the
+			// value's first line is a lone bracket, as jq and most tools
+			// write it; otherwise a broken line of JSON Lines.
+			first := b[i:]
+			if nl := bytes.IndexByte(first, '\n'); nl >= 0 {
+				first = first[:nl]
+				t := string(bytes.TrimSpace(first))
+				return t == "{" || t == "["
+			}
+			return false
+		}
+		// a bad line: go on from the next one
+		nl := bytes.IndexByte(b[i:], '\n')
+		if nl < 0 {
+			return false
+		}
+		i = jv.SkipSpace(b, i+nl+1)
 	}
 	return false
 }

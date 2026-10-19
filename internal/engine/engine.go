@@ -177,6 +177,7 @@ type run struct {
 	stop    chan struct{}
 	stopped sync.Once
 	fault   sync.Once // a truncated file is reported once
+	skipBOM bool      // the input being read is the first one
 }
 
 func (r *run) halt() { r.stopped.Do(func() { close(r.stop) }) }
