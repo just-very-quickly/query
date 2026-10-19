@@ -1,0 +1,8 @@
+/jvqq
+/jvqq.exe
+*.test
+*.test.exe
+coverage.out
+/dist/
+/scripts/__pycache__/
+/test/bench/data/

@@ -1,0 +1,472 @@
+# Each line is a jq filter, run by both jq and jvqq on corpus.jsonl.
+# Options go before a tab: -c<TAB>.a  Lines starting with # are comments.
+# -n cases run on null input instead.
+.
+-c	.
+-c	.level
+-r	.level
+-c	.user.name
+-c	.user?.name?
+-c	.[]?
+-c	.tags[]?
+-c	.tags[0]
+-c	.tags[-1]
+-c	.tags[1:]
+-c	.tags[:1]
+-c	.["level"]
+-c	."level"
+-c	select(.level == "error")
+-c	select(.level != "info") | .service
+-c	select(.ms > 100)
+-c	select(.ms >= 1 and .ms <= 15)
+-c	select(.ms < 1 or .status == 404)
+-c	select(.status == 500) | {ts, service, ms}
+-c	select(.user) | .user.id
+-c	select(has("user"))
+-c	select(.tags | length > 1)
+-c	{level, svc: .service, slow: (.ms > 100)}
+-c	{(.service // "none"): .ms}
+-c	[.level, .status]
+-c	.ms // 0
+-c	.missing // "default"
+-c	.ms + 1
+-c	.ms * 2, .ms - 1, .ms / 4
+-c	.status % 7
+-c	-.status
+-c	.level + "/" + .service
+-c	.tags + ["new"]
+-c	.user + {"admin": false}
+-c	.user * {"name": "X"}
+-c	length
+-c	utf8bytelength
+-c	keys
+-c	keys_unsorted
+-c	to_entries
+-c	to_entries | from_entries
+-c	with_entries(.value |= tostring)
+-c	type
+-c	tostring
+-c	tojson
+-c	tojson | fromjson
+-c	.status | tostring | tonumber
+-c	.msg | ascii_downcase, ascii_upcase
+-c	.msg | explode | implode
+-c	.msg | length
+-c	.msg | split(" ")
+-c	.path | split("/")
+-c	.path | ltrimstr("/v1"), rtrimstr("/1")
+-c	.path | startswith("/v1/users"), endswith("9")
+-c	.path | test("users")
+-c	.path | test("USERS"; "i")
+-c	.path | capture("/v1/(?<kind>[a-z]+)/(?<id>[0-9]+)")
+-c	.path | [match("[0-9]+"; "g") | .string]
+-c	.path | sub("[0-9]+"; "N")
+-c	.path | gsub("[aeiou]"; "_")
+-c	.path | [scan("[a-z]+")]
+-c	.msg | sub("(?<w>[a-z]+)"; "<\(.w)>")
+-c	"\(.level): \(.service)"
+-r	"\(.level)\t\(.ms)"
+-c	[.level, .service] | join("-")
+-r	[.level, .ms, .status] | @csv
+-r	[.level, .service] | @tsv
+-r	.msg | @html
+-r	.path | @uri
+-r	.level | @sh
+-r	.service | @base64
+-r	.service | @base64 | @base64d
+-c	@json
+-r	@text
+-c	.tags | sort
+-c	.tags | sort_by(.) | reverse
+-c	.tags | unique
+-c	.tags | min, max
+-c	.tags | add
+-c	.tags | any, all
+-c	.tags | index("b")
+-c	.tags | contains(["a"])
+-c	.tags | inside(["a","b","c","x","y","z","w"])
+-c	.tags | map(ascii_upcase)
+-c	.tags | first, last
+-c	.tags | flatten
+-c	.tags | length as $n | $n * 2
+-c	.tags | to_entries
+-c	[.tags[] | select(. != "a")]
+-c	[paths]
+-c	[leaf_paths]
+-c	[paths(type == "number")]
+-c	getpath(["user","name"])
+-c	path(.user.name)
+-c	[path(..)]
+-c	del(.tags)
+-c	del(.user.id, .ms)
+-c	del(.tags[0])
+-c	.status = 1
+-c	.user.name |= ascii_upcase
+-c	.ms += 1
+-c	.tags[] |= . + "!"
+-c	.new = .level
+-c	.ms //= 0
+-c	to_entries | map(select(.value != null)) | from_entries
+-c	map_values(type)
+-c	[.[] | numbers]
+-c	[.[] | strings]
+-c	[.. | numbers]
+-c	[.. | scalars] | length
+-c	[recurse | type] | unique
+-c	walk(if type == "number" then . + 1 else . end)
+-c	if .ms > 100 then "slow" elif .ms > 10 then "ok" else "fast" end
+-c	if .level == "error" then .msg end
+-c	try error("custom") catch .
+-c	try (.status | tostring | error) catch "caught"
+-c	.ms as $m | .status as $s | [$m, $s]
+-c	. as $all | .service | {s: ., l: $all.level}
+-c	reduce .tags[]? as $t (""; . + $t)
+-c	[foreach (.tags[]?) as $t (0; . + 1; [$t, .])]
+-c	[limit(2; .tags[]?)]
+-c	first(.tags[]?)
+-c	[range(3)], [range(1; 4)], [range(0; 10; 3)]
+-c	isempty(.tags[]?)
+-c	.status | floor, ceil, sqrt
+-c	.ms | round
+-c	(.ms // 0) | tostring
+-c	[.ms, .status] | max
+-c	.ts | fromdateiso8601? // "bad"
+-c	(.ts | fromdate? | todate)
+-c	.status | IN(200, 201)
+-c	any(.tags[]?; . == "a")
+-c	all(.tags[]?; length == 1)
+-c	[splits(", ")]? // "nope"
+-c	.f + .g
+-c	.n
+-c	.n == 9007199254740992
+-c	.g, .h, .ms
+-c	.big * 2
+-c	.num
+-c	[.num, .neg, .zero] | sort
+-c	.str | tonumber
+-c	.nested | [paths | join(".")]
+-c	.nested.a.b.c.d
+-c	.extra.deep.x[2].y
+-c	.extra | tostream?
+-c	objects | keys | length
+-c	arrays | length
+-c	strings | ascii_downcase
+-c	.level as $l | select($l | IN("info", "INFO"))
+-c	{a: (1,2), b: (3,4)}
+-c	"\(1,2)-\(3,4)"
+-c	(1,2) + (10,20)
+-c	[.ms] | add
+-c	.msg | ascii
+-c	.msg | @json
+-r	.msg
+-j	.level
+-c	.level | test("^e")
+-c	.service | [match("(a)(x)?").captures[].string]
+-c	splits("x")?
+-c	.tags | join(",")
+-c	.list | first?
+-c	.empty | keys
+-c	.s | length
+-c	.status | . as $x | [$x, $x * $x]
+-S	.
+--tab	.user
+--indent 4	.user
+-c	limit(-1; .tags[]?)
+-c	[.tags[]?] | nth(1)
+-c	nth(0; .tags[]?)
+-c	.tags | indices("a")
+-c	.path | indices("/")
+-c	.path | index("/"), rindex("/")
+-c	.user | has("id")
+-c	.tags | has(0)
+-c	.user | to_entries[0]
+-c	(.ms | numbers) |= . * 10
+-c	.tags | .[1:] = ["q"]
+-c	.a
+-c	{a}
+-c	[.[]?] | length
+-c	.user // {} | .name // "anon"
+-c	pick(.level)?
+-c	.level | ltrimstr("e") | rtrimstr("r")
+-c	.msg | trim, ltrim, rtrim
+-c	tostring | length
+-c	[.level, .service] | @csv
+-c	.ms | tojson
+-c	.ms | type
+-c	.ms | isnan?
+-c	.ms | (. * 3 | floor) / 3
+-c	.status | -(.)
+-c	.status | . / 3
+-c	1 / 3, 2 / 3, 100 / 3
+-c	.ms | . * 1.1
+-c	(.ms // 0) | . * 0.001
+-c	.status | log | floor
+-c	.status | pow(.; 2)
+-c	env | type
+-c	$ENV | type
+-c	@base32 "\(.level)"
+-c	.service | @base32 | @base32d
+-c	debug | .level
+-c	[.tags[]?] | group_by(.) | map(length)
+-c	[.tags[]?] | unique_by(length)
+-c	[.tags[]?] | min_by(length), max_by(length)
+-c	[.tags[]?] | combinations?
+-c	.tags | tostring
+-c	.user | tojson | length
+-c	.level | [.[0:1], .[1:]]
+-c	.level | .[-2:]
+-c	[.[]?] | .[1.5]
+-c	[.[]?] | .[1.2:2.7]
+-n	1, 2, 3
+-nc	[1, 2.0, 1e2, -0, 0.10]
+-nc	{"a": 1} | .a += 1
+-nc	[3, 1, 2] | sort
+-nc	"abc" | .[1:2]
+-nc	null | .a.b.c
+-nc	[1, [2, [3, [4]]]] | flatten(1)
+-nc	{} | .a.b.c = 1
+-nc	[1, 2, 3] | del(.[0, 2])
+-nc	[1, 2, 3] | to_entries
+-nc	{"a": [1, 2]} | [paths]
+-nc	[range(5)] | .[2:4] = ["x"]
+-nc	"a,b, c" | split(", ")
+-nc	"test 123 test" | [match("\\d+")] | length
+-nc	[1, null, "a", [], {}] | map(type)
+-nc	[1, 2] | contains([1])
+-nc	"foobar" | contains("bar")
+-nc	{"a": {"b": 1}} | contains({"a": {}})
+-nc	[1, 2, 3] | IN(2)
+-nc	reduce range(10) as $i (0; . + $i)
+-nc	[limit(3; repeat(1))]
+-nc	[1, 2, 3] | until(length < 2; .[1:])
+-nc	[while(. < 5; . + 1)]?
+-nc	0 | [while(. < 5; . + 1)]
+-nc	1e1000
+-nc	-1e1000
+-nc	[.[]?]
+-nc	"é" | utf8bytelength
+-nc	"x" * 3
+-nc	"x" * 0
+-nc	{"a": 1} * {"a": {"b": 2}}
+-nc	[1, 2, 3] - [2]
+-nc	"a-b-c" / "-"
+-nc	10 % 3, -10 % 3, 10 % -3
+-nc	[1, 2] | .[2] = 3
+-nc	[1, 2] | .[-1] = 9
+-nc	{"a": null} | .a // "x"
+-nc	(false, null, 1) // 2
+-nc	[false, null] | .[] // "d"
+-nc	true and (true, false)
+-nc	(true, false) or false
+-nc	[.[]?] // "empty"
+-nc	{"a": 1, "b": 2} | with_entries(select(.value > 1))
+-nc	{"a": 1, "b": 2} | map_values(. * 10)
+-nc	{"a": 1, "b": 2} | map(. + 1)
+-nc	[{"k": "a", "v": 1}] | from_entries
+-nc	[{"name": "a", "value": 1}, {"key": null, "value": 2}, {"key": 1, "value": 3}] | from_entries
+-nc	"abc" | test("B"; "ix")
+-nc	"aXbXc" | [splits("x"; "i")]
+-nc	"aaa" | gsub("a"; "b")
+-nc	"aaa" | sub("a"; "b"; "g")
+-nc	"2015-03-05T23:51:47Z" | fromdateiso8601
+-nc	1425599507 | todate
+-nc	1425599507 | strftime("%Y-%m-%d %H:%M:%S %j %a %b")
+-nc	[1, 2, 3] | first(.[]), last(.[])
+-nc	[] | first?
+-nc	{"a": [{"b": 1}, {"b": 2}]} | [.a[].b]
+-nc	{"a": [{"b": 1}, {"b": 2}]} | .a |= map(.b)
+-nc	{"a": [{"b": 1}, {"b": 2}]} | del(.a[] | select(.b == 1))
+-nc	[1, 2, 3] | map(select(. > 1)) | length
+-nc	{"x": 1} | has("x"), has("y")
+-nc	"x" | ascii_downcase | ascii_upcase
+-nc	[3, 1, 2] | sort_by(-.)
+-nc	[{"a": 2}, {"a": 1}] | sort_by(.a)
+-nc	[{"a": 2, "b": 1}, {"a": 1, "b": 1}] | group_by(.b)
+-nc	[1, 1, 2] | unique
+-nc	"\(1 + 2)"
+-nc	@text "\(1)"
+-nc	@csv "\([1, "a"])"
+-nc	@json "x\([1])"
+-nc	[splits("a")]?
+-nc	"x" | tojson | tojson
+-nc	"[1,2" | fromjson?
+-nc	{"a":"b"} | to_entries[] | "\(.key)=\(.value)"
+-nc	[1, 2] | tojson | fromjson | add
+-nc	9007199254740993
+-nc	9007199254740993 == 9007199254740992
+-nc	1.000 == 1
+-nc	[1.0, 1, 1.00] | unique
+-nc	[0.1, 0.2] | add
+-nc	3.0 * 1
+-nc	100 / 10
+-nc	1e17 + 1
+-nc	[-1.5, 1.5, 2.5] | map(round)
+-nc	[1, 2] | min, max
+-nc	[] | min, max, add
+-nc	{} | keys
+-nc	[[1, 2], [3]] | add
+-nc	[{"a": 1}, {"b": 2}] | add
+-nc	["a", "b"] | add
+-nc	[null, 1] | add
+-nc	{"a": 1} | .["a", "b"]?
+-nc	[1, 2, 3] | .[1:][0]
+-nc	[1, 2, 3] | .[:-1]
+-nc	"abc" | .[-1:]
+-nc	null | length
+-nc	-5 | length
+-nc	{"a":[1,2]} | .a[1:] |= map(. * 10)
+-nc	[1, 2, 3] | del(.[1:])
+-nc	[range(10)] | [.[] | select(. % 2 == 0)]
+-nc	[range(0; 1; 0.25)]
+-nc	[range(5; 0; -2)]
+-nc	"abc" | indices("")
+-nc	["a", "b"] | index("b")
+-nc	[1, 2, 1, 2] | indices([1, 2])
+-nc	[1, 2, 1, 2] | indices(1)
+-nc	isvalid(1)?
+-nc	[1, 2] | getpath(["a"])?
+-nc	{"a": {"b": 1}} | getpath(["a", "b"]), getpath(["x", "y"])
+-nc	{} | setpath(["a", 0, "b"]; 1)
+-nc	{"a": 1, "b": 2} | delpaths([["a"], ["b"]])
+-nc	{"a": [1, 2]} | to_entries
+-nc	[{"a": 1}] | .[0].a |= empty
+-nc	{"a": 1, "b": 2} | (.a, .b) |= . + 1
+-nc	{"a": 1} | .a |= (., 5)
+-nc	[1, 2] | .[] += 10
+-nc	{"a": [1]} | .a += [2]
+-nc	{} | .a.b |= . + 1
+-nc	[[1, 2], [3, 4]] | .[] |= reverse
+-nc	{"a": 1} | with_entries(.key |= ascii_upcase)
+-nc	[1, [2]] | getpath([1, 0])
+-nc	"abc" | explode | map(. + 1) | implode
+-nc	[65, 66] | implode
+-nc	"a" | @sh
+-nc	["a b", "c'd"] | @sh
+-nc	[1, "x", null, true] | @tsv
+-nc	"a\tb\nc\\d" | [.] | @tsv
+-nc	"<&>'\"" | @html
+-nc	"a b+c/d?e=f&g" | @uri
+-nc	"hello" | @base64, (@base64 | @base64d)
+-nc	{"a": [1, {"b": null}]} | [paths(. == null)]
+-nc	{"a": 1, "b": {"c": 2}} | [leaf_paths]
+-nc	{"a": 1, "b": {"c": 2}} | [.. | numbers]
+-nc	{"a": 1} | to_entries | map("\(.key)=\(.value)") | join("&")
+-nc	[1, 2, 3] | any(. > 2), all(. > 0)
+-nc	[] | any, all
+-nc	{"a": true, "b": false} | any, all
+-nc	[{"id": 1}, {"id": 2}] | map(.id) | add / length
+-nc	{"a": "1", "b": "x"} | map_values(tonumber? // .)
+-nc	"1.50" | tonumber
+-nc	" 12 " | tonumber?
+-nc	"abc" | tonumber?
+-nc	[1, 2] | tostring
+-nc	{"a": 1} | tostring
+-nc	"x" | tostring
+-nc	123 | tojson
+-nc	1.5e300 * 1e10
+-nc	[nan] | tojson
+-nc	infinite, -infinite
+-nc	[1, 2, 3] | .[1] = empty
+-nc	{"a": 1} | .a = (1, 2)
+-nc	try error({"a": 1}) catch .a
+-nc	[.[]?, 1]
+-nc	(1, 2) as $x | $x * 10
+-nc	[1, 2] as $arr | $arr | length
+-nc	"x" as $x | {$x}
+-nc	{"if": 1, "then": 2} | .if, .then
+-nc	{if: 1}
+-nc	[1, 2, 3] | .[1:2] |= ["a", "b"]
+-nc	[[1, 2], [3]] | map(add)
+-nc	"a" | ascii_downcase | test("A"; "i")
+-nc	"test" | [match("t"; "g").offset]
+-nc	"aéb" | [match("b").offset]
+-nc	"héllo" | sub("é"; "e")
+-nc	"aXbXc" | split("X"; null)
+-nc	"a1b2" | [scan("[a-z]([0-9])")]
+-nc	"foo bar" | capture("(?<a>\\w+) (?<b>\\w+)")
+-nc	"abc" | [match(""; "g").offset]
+-nc	"x" | test("")
+-nc	[limit(5; range(100))]
+-nc	first(range(10; 20))
+-nc	[foreach range(5) as $i (0; . + $i)]
+-nc	[foreach range(5) as $i (0; . + $i; [$i, .])]
+-nc	reduce empty as $x (0; . + 1)
+-nc	{"a": {"b": {"c": 1}}} | [paths(..)]?
+-nc	[{"a": 1}, {"a": 2}] | map(select(.a > 1) | .a)
+-nc	[1, 2, 3] | [.[] | . * 2] | add
+-nc	{"a": 1} | .b
+-nc	{"a": 1} | .a.b?
+-nc	{"a": 1} | try .a.b catch "err"
+-nc	[1] | .[0].a?
+-nc	1 | .[0]?
+-nc	"abc" | .[0]?
+-nc	{} | .[0]?
+-nc	[] | .["a"]?
+-nc	[1, 2] | .[[2]]?
+-nc	[1, 2, 1] | .[[1]]
+-nc	null | .[]?
+-nc	true | not
+-nc	[true, false, null, 0, ""] | map(not)
+-nc	"abc" | ltrimstr(1)
+-nc	1 | ltrimstr("a")
+-nc	[1, 2] | join(",")
+-nc	[1, null, "a", true] | join("-")
+-nc	[] | join(",")
+-nc	{"a": 1} | del(.a) | length
+-nc	[0, 1, 2] | del(.[] | select(. == 1))
+-nc	{"a": [1, 2, 3]} | del(.a[0, 1])
+-nc	{"a": 1, "b": 2} | to_entries | map(.key) | sort
+-nc	{"b": 2, "a": 1} | keys_unsorted
+-nc	{"b": {"d": 1, "c": 2}, "a": 1}
+-Snc	{"b": {"d": 1, "c": 2}, "a": 1}
+-nc	"\u0000\u001f\u007f\u0080 "
+-nc	"😀" | length, utf8bytelength
+-nc	[.[]?] | length
+-nc	$__loc__
+-nc	"abc" | test("a.c"; "x")
+-nc	"a\nb" | test("a.b")
+-nc	"a\nb" | test("a.b"; "s")
+-nc	[1, 2, 3] | add(.[])?
+-nc	{} | .a[1:3] = [1]
+-nc	null | .[1:3] = ["x"]
+-nc	[] | .[3] = 1
+-nc	{"a": 1} | getpath(["a", "b"])?
+-nc	[3, 2, 1] | sort | first
+-nc	"x" | [limit(3; repeat(.))]
+-nc	[1, 2] | map(tostring) | join("")
+-nc	1 as $x | [$x, $__loc__.line]
+-nc	"abc" | sub("(?<x>b)"; "[\(.x)]", "{\(.x)}")
+-nc	"\(1; 2)"?
+-nc	[.] | length
+-nc	{} | .a.b.c |= 5
+-nc	[1, 2] | .[] as $x | $x + 1
+-nc	{"a": "x"} | .a as $v | {($v): 1}
+~-nc	. as [$a, $b] | $a
+~-nc	label $out | 1
+~-nc	def f: 1; f
+-nc	input
+-nc	[splits]
+-nc	{(1): 2}
+-nc	.a.b.c.d.e
+-nc	"x" | error
+-nc	error(null)
+-nc	null | error
+-nc	{"a": 1} | error
+-nc	[1, 2] | .[0] as $x | error("bad \($x)")
+-nc	1 / 0
+-nc	1 % 0
+-nc	{} | length, ([] | length), ("" | length)
+-nc	true | length
+-nc	"a" + 1
+-nc	{} - {}
+-nc	[] | implode
+-nc	"x" | fromjson
+# input and inputs run in order on one core
+-n	reduce inputs as $x (0; . + 1)
+-nc	[inputs | .level?] | length
+-c	[., input]
+-c	input_filename
+-nc	input | .ts
+-nc	first(inputs | select(.level? == "warn"))
+-c	if .level == "warn" then halt else .level end
+-nc	[inputs] | map(.ms? // 0) | add
