@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"runtime/debug"
 
 	"github.com/just-very-quickly/query/internal/jv"
 	"github.com/just-very-quickly/query/internal/query"
@@ -35,14 +36,22 @@ type valueIter struct {
 
 func (it *valueIter) release() {
 	if it.cur != nil {
-		it.r.putBuf(it.cur.buf)
+		it.r.release(it.cur)
 		<-it.r.tokens
 		it.cur = nil
 	}
 }
 
 // Next returns the next input value, decoded (values may be kept).
-func (it *valueIter) Next() (any, bool, error) {
+func (it *valueIter) Next() (v any, ok bool, err error) {
+	old := debug.SetPanicOnFault(true)
+	defer debug.SetPanicOnFault(old)
+	defer func() {
+		if e := faulted(recover(), it.file); e != nil {
+			it.fatal = e
+			v, ok, err = nil, false, nil
+		}
+	}()
 	for {
 		if it.fatal != nil {
 			return nil, false, nil
@@ -204,7 +213,7 @@ func (r *run) sequential(out *bufio.Writer, inputs []Input) int {
 	}
 	if it.fatal != nil {
 		out.Flush()
-		fmt.Fprintf(cfg.Stderr, "%s: error: %v\n", r.name, it.fatal)
+		r.fatal(it.fatal)
 		return ExitUsage
 	}
 	if it.bad > 0 {
@@ -230,7 +239,7 @@ func (r *run) drain(chunks <-chan *chunk, it *valueIter) {
 	r.halt()
 	it.release()
 	for c := range chunks {
-		r.putBuf(c.buf)
+		r.release(c)
 		<-r.tokens
 	}
 }

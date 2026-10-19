@@ -53,92 +53,157 @@ func Valid(b []byte, i int) (int, error) {
 	return valid(b, i, 0)
 }
 
+func isWS(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
+
+// valid checks one value starting at b[i] (whitespace first allowed), at
+// nesting depth depth. It is one loop with an explicit stack: faster than
+// recursion on the short, flat objects of log lines.
 func valid(b []byte, i int, depth int) (int, error) {
-	if i >= len(b) {
+	var stackBuf [64]byte
+	stack := stackBuf[:0]
+	n := len(b)
+value:
+	for i < n && isWS(b[i]) {
+		i++
+	}
+	if i >= n {
 		return i, eofErr(i, "Unfinished JSON term")
 	}
 	switch c := b[i]; c {
-	case '{':
-		if depth >= MaxDepth {
+	case '{', '[':
+		if depth+len(stack) >= MaxDepth {
 			return i, synErr(i, "Exceeds depth limit for parsing")
 		}
-		i = SkipSpace(b, i+1)
-		if i < len(b) && b[i] == '}' {
-			return i + 1, nil
+		i++
+		for i < n && isWS(b[i]) {
+			i++
 		}
-		for {
-			if i >= len(b) {
-				return i, eofErr(i, "Unfinished JSON term")
+		if c == '{' {
+			if i < n && b[i] == '}' {
+				i++
+				goto after
 			}
-			if b[i] != '"' {
-				return i, synErr(i, "Object keys must be strings")
-			}
-			var err error
-			if i, err = validString(b, i); err != nil {
-				return i, err
-			}
-			i = SkipSpace(b, i)
-			if i >= len(b) {
-				return i, eofErr(i, "Unfinished JSON term")
-			}
-			if b[i] != ':' {
-				return i, synErr(i, "Objects must consist of key:value pairs")
-			}
-			i = SkipSpace(b, i+1)
-			if i, err = valid(b, i, depth+1); err != nil {
-				return i, err
-			}
-			i = SkipSpace(b, i)
-			if i >= len(b) {
-				return i, eofErr(i, "Unfinished JSON term")
-			}
-			if b[i] == '}' {
-				return i + 1, nil
-			}
-			if b[i] != ',' {
-				return i, synErr(i, "Expected separator between values")
-			}
-			i = SkipSpace(b, i+1)
+			stack = append(stack, '{')
+			goto key
 		}
-	case '[':
-		if depth >= MaxDepth {
-			return i, synErr(i, "Exceeds depth limit for parsing")
+		if i < n && b[i] == ']' {
+			i++
+			goto after
 		}
-		i = SkipSpace(b, i+1)
-		if i < len(b) && b[i] == ']' {
-			return i + 1, nil
-		}
-		for {
-			var err error
-			if i, err = valid(b, i, depth+1); err != nil {
-				return i, err
-			}
-			i = SkipSpace(b, i)
-			if i >= len(b) {
-				return i, eofErr(i, "Unfinished JSON term")
-			}
-			if b[i] == ']' {
-				return i + 1, nil
-			}
-			if b[i] != ',' {
-				return i, synErr(i, "Expected separator between values")
-			}
-			i = SkipSpace(b, i+1)
-		}
+		stack = append(stack, '[')
+		goto value
 	case '"':
-		return validString(b, i)
-	case 't':
-		return validLit(b, i, "true")
-	case 'f':
-		return validLit(b, i, "false")
-	case 'n':
-		return validLit(b, i, "null")
-	default:
-		if c == '-' || (c >= '0' && c <= '9') {
-			return validNumber(b, i)
+		i++
+		for i < n && !strSpecial[b[i]] {
+			i++
 		}
-		return i, synErr(i, "Invalid literal")
+		if i < n && b[i] == '"' {
+			i++
+			goto after
+		}
+		{
+			e, err := validStringFrom(b, i)
+			if err != nil {
+				return e, err
+			}
+			i = e
+		}
+		goto after
+	case 't', 'f', 'n':
+		lit := "null"
+		if c == 't' {
+			lit = "true"
+		} else if c == 'f' {
+			lit = "false"
+		}
+		e, err := validLit(b, i, lit)
+		if err != nil {
+			return e, err
+		}
+		i = e
+		goto after
+	default:
+		// Plain integers inline; anything else through validNumber.
+		j := i
+		if b[j] == '-' {
+			j++
+		}
+		if j < n && b[j] >= '1' && b[j] <= '9' {
+			j++
+			for j < n && b[j] >= '0' && b[j] <= '9' {
+				j++
+			}
+			if j < n && (b[j] == '.' || b[j] == 'e' || b[j] == 'E' || isLitByte(b[j])) || j == n {
+				e, err := validNumber(b, i)
+				if err != nil {
+					return e, err
+				}
+				j = e
+			}
+			i = j
+			goto after
+		}
+		e, err := validNumber(b, i)
+		if err != nil {
+			if c != '-' && (c < '0' || c > '9') {
+				return i, synErr(i, "Invalid literal")
+			}
+			return e, err
+		}
+		i = e
+		goto after
 	}
+key:
+	if i >= n {
+		return i, eofErr(i, "Unfinished JSON term")
+	}
+	if b[i] != '"' {
+		return i, synErr(i, "Object keys must be strings")
+	}
+	{
+		e, err := validString(b, i)
+		if err != nil {
+			return e, err
+		}
+		i = e
+	}
+	for i < n && isWS(b[i]) {
+		i++
+	}
+	if i >= n {
+		return i, eofErr(i, "Unfinished JSON term")
+	}
+	if b[i] != ':' {
+		return i, synErr(i, "Objects must consist of key:value pairs")
+	}
+	i++
+	goto value
+after:
+	if len(stack) == 0 {
+		return i, nil
+	}
+	for i < n && isWS(b[i]) {
+		i++
+	}
+	if i >= n {
+		return i, eofErr(i, "Unfinished JSON term")
+	}
+	if b[i] == ',' {
+		i++
+		for i < n && isWS(b[i]) {
+			i++
+		}
+		if stack[len(stack)-1] == '{' {
+			goto key
+		}
+		goto value
+	}
+	if top := stack[len(stack)-1]; top == '{' && b[i] == '}' || top == '[' && b[i] == ']' {
+		i++
+		stack = stack[:len(stack)-1]
+		goto after
+	}
+	return i, synErr(i, "Expected separator between values")
 }
 
 func validLit(b []byte, i int, lit string) (int, error) {
@@ -217,7 +282,11 @@ func validNumber(b []byte, i int) (int, error) {
 }
 
 func validString(b []byte, i int) (int, error) {
-	i++ // opening quote
+	return validStringFrom(b, i+1)
+}
+
+// validStringFrom checks a string from b[i], just after its opening quote.
+func validStringFrom(b []byte, i int) (int, error) {
 	for {
 		for i < len(b) && !strSpecial[b[i]] {
 			i++

@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"runtime/debug"
 	"unicode/utf8"
 
 	"github.com/klauspost/compress/gzip"
@@ -64,6 +65,17 @@ func (r *run) read(inputs []Input, chunks chan<- *chunk) int {
 			return code
 		default:
 		}
+		if in.Path != "" {
+			if done, err := r.readMapped(in, chunks, &seq); done {
+				if err == errFault {
+					return ExitUsage
+				}
+				if err == errStopped {
+					return code
+				}
+				continue
+			}
+		}
 		rc, err := openInput(in)
 		if err != nil {
 			fmt.Fprintf(r.cfg.Stderr, "%s: error: could not open %v\n", r.name, err)
@@ -83,11 +95,61 @@ func (r *run) read(inputs []Input, chunks chan<- *chunk) int {
 	return code
 }
 
+// readMapped cuts a memory-mapped file into chunks without copying it.
+// It reports done=false when the file can't be mapped or isn't JSON Lines
+// (compressed, or values spanning lines), to be read normally instead.
+func (r *run) readMapped(in Input, chunks chan<- *chunk, seq *int) (done bool, err error) {
+	data, unmap, ok := mapFile(in.Path)
+	if !ok {
+		return false, nil
+	}
+	old := debug.SetPanicOnFault(true)
+	defer debug.SetPanicOnFault(old)
+	defer func() {
+		if e := faulted(recover(), in.Name); e != nil {
+			r.fault.Do(func() { fmt.Fprintf(r.cfg.Stderr, "%s: error: %v\n", r.name, e) })
+			r.halt()
+			done, err = true, errFault
+		}
+	}()
+	head := data[:min(len(data), r.cfg.ChunkSize)]
+	gz := len(head) >= 2 && head[0] == 0x1f && head[1] == 0x8b
+	zst := len(head) >= 4 && head[0] == 0x28 && head[1] == 0xb5 && head[2] == 0x2f && head[3] == 0xfd
+	if gz || zst || !r.cfg.RawInput && isDocument(head) {
+		unmap()
+		return false, nil
+	}
+	m := &mapping{unmap: unmap}
+	defer m.seal()
+	line := 1
+	for pos := 0; pos < len(data); {
+		end := min(pos+r.cfg.ChunkSize, len(data))
+		if end < len(data) {
+			if nl := bytes.LastIndexByte(data[pos:end], '\n'); nl >= 0 {
+				end = pos + nl + 1
+			} else if nl := bytes.IndexByte(data[end:], '\n'); nl >= 0 {
+				end += nl + 1 // one line longer than a chunk
+			} else {
+				end = len(data)
+			}
+		}
+		m.add()
+		c := &chunk{seq: *seq, file: in.Name, line: line, data: data[pos:end], mapping: m}
+		*seq++
+		line += bytes.Count(data[pos:end], []byte{'\n'})
+		if err := r.send(chunks, c); err != nil {
+			return true, err
+		}
+		pos = end
+	}
+	return true, nil
+}
+
 func (r *run) send(chunks chan<- *chunk, c *chunk) error {
 	select {
 	case r.tokens <- struct{}{}:
 	case <-r.stop:
-		r.putBuf(c.buf)
+		r.release(c)
 		return errStopped
 	}
 	chunks <- c

@@ -66,18 +66,20 @@ func ValidDoc(b []byte, i int, d *Doc) (int, error) {
 		}
 		ks := i
 		var err error
-		if i, err = validString(b, i); err != nil {
-			return i, err
+		// Keys are plain ASCII almost always: check them in one pass.
+		j := i + 1
+		for j < len(b) && keyPlain[b[j]] {
+			j++
+		}
+		if j < len(b) && b[j] == '"' {
+			i = j + 1
+		} else {
+			if i, err = validString(b, i); err != nil {
+				return i, err
+			}
+			d.slow = true // escapes or non-ASCII bytes
 		}
 		ke := i
-		if !d.slow {
-			for _, c := range b[ks+1 : ke-1] {
-				if c == '\\' || c >= 0x80 {
-					d.slow = true
-					break
-				}
-			}
-		}
 		i = SkipSpace(b, i)
 		if i >= len(b) {
 			return i, eofErr(i, "Unfinished JSON term")
@@ -87,8 +89,22 @@ func ValidDoc(b []byte, i int, d *Doc) (int, error) {
 		}
 		i = SkipSpace(b, i+1)
 		vs := i
-		if i, err = valid(b, i, 1); err != nil {
-			return i, err
+		// Plain strings, the most common member value, are checked here;
+		// everything else by valid.
+		plain := false
+		if i < len(b) && b[i] == '"' {
+			j := i + 1
+			for j < len(b) && !strSpecial[b[j]] {
+				j++
+			}
+			if j < len(b) && b[j] == '"' {
+				i, plain = j+1, true
+			}
+		}
+		if !plain {
+			if i, err = valid(b, i, 1); err != nil {
+				return i, err
+			}
 		}
 		d.members = append(d.members, member{int32(ks - start), int32(ke - start), int32(vs - start), int32(i - start)})
 		i = SkipSpace(b, i)
@@ -214,6 +230,15 @@ func canonical(b []byte) bool {
 	}
 	return true
 }
+
+// keyPlain marks the bytes a key can hold and still be compared as is:
+// printable ASCII other than the quote and backslash.
+var keyPlain = func() (t [256]bool) {
+	for c := 0x20; c < 0x7f; c++ {
+		t[c] = c != '"' && c != '\\'
+	}
+	return
+}()
 
 // canonStop marks the bytes that end a run of plain string bytes in
 // canonical: the quote, a backslash, DEL and non-ASCII bytes (valid JSON

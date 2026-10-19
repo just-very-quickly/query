@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 
@@ -54,6 +55,7 @@ const DefaultChunkSize = 1 << 20
 // Input is one file (or standard input) to read.
 type Input struct {
 	Name string // as shown in messages; "<stdin>" for standard input
+	Path string // the file's path, to map it into memory; "" for stdin
 	Open func() (io.ReadCloser, error)
 }
 
@@ -63,8 +65,82 @@ type chunk struct {
 	file     string
 	line     int // line number of the first byte
 	data     []byte
-	buf      *[]byte // the pooled buffer data lives in, returned after use
-	document bool    // values may span lines; already checked by the reader
+	buf      *[]byte  // the pooled buffer data lives in, returned after use
+	mapping  *mapping // or the mapped file it points into
+	document bool     // values may span lines; already checked by the reader
+}
+
+// mapping is a file mapped into memory, unmapped once the reader is done
+// with it and every chunk cut from it has been written.
+type mapping struct {
+	mu     sync.Mutex
+	refs   int
+	sealed bool
+	unmap  func()
+}
+
+func (m *mapping) add() {
+	m.mu.Lock()
+	m.refs++
+	m.mu.Unlock()
+}
+
+func (m *mapping) done() {
+	m.mu.Lock()
+	m.refs--
+	last := m.refs == 0 && m.sealed
+	m.mu.Unlock()
+	if last {
+		m.unmap()
+	}
+}
+
+func (m *mapping) seal() {
+	m.mu.Lock()
+	m.sealed = true
+	last := m.refs == 0
+	m.mu.Unlock()
+	if last {
+		m.unmap()
+	}
+}
+
+// fatal reports an error that stopped the run.
+func (r *run) fatal(err error) {
+	if _, ok := err.(*faultError); ok {
+		r.fault.Do(func() { fmt.Fprintf(r.cfg.Stderr, "%s: error: %v\n", r.name, err) })
+		return
+	}
+	fmt.Fprintf(r.cfg.Stderr, "%s: error: %v\n", r.name, err)
+}
+
+// faulted turns the panic of a memory fault into an error. Reading a
+// mapped file faults when the file gets shorter while it is read (a log
+// rotated by truncating it, say). Other panics carry on.
+func faulted(p any, file string) error {
+	if p == nil {
+		return nil
+	}
+	if _, ok := p.(interface{ Addr() uintptr }); ok {
+		return &faultError{file}
+	}
+	panic(p)
+}
+
+type faultError struct{ file string }
+
+func (e *faultError) Error() string {
+	return e.file + ": the file got shorter while it was being read"
+}
+
+// release gives back what a chunk holds once it has been written.
+func (r *run) release(c *chunk) {
+	if c.buf != nil {
+		r.putBuf(c.buf)
+	}
+	if c.mapping != nil {
+		c.mapping.done()
+	}
 }
 
 // result is what a worker made of a chunk.
@@ -94,6 +170,7 @@ type run struct {
 	tokens  chan struct{}
 	stop    chan struct{}
 	stopped sync.Once
+	fault   sync.Once // a truncated file is reported once
 }
 
 func (r *run) halt() { r.stopped.Do(func() { close(r.stop) }) }
@@ -261,16 +338,17 @@ func (r *run) parallel(out *bufio.Writer, inputs []Input) int {
 
 	agg := cfg.Program.HasAggregation()
 	runners := make([]*query.Runner, r.workers)
-	debug := make([]*bytes.Buffer, r.workers)
+	debugs := make([]*bytes.Buffer, r.workers)
 	var wg sync.WaitGroup
 	for w := 0; w < r.workers; w++ {
-		debug[w] = &bytes.Buffer{}
-		runners[w] = cfg.Program.NewRunner(debug[w])
+		debugs[w] = &bytes.Buffer{}
+		runners[w] = cfg.Program.NewRunner(debugs[w])
 		wg.Add(1)
 		go func(w int) {
 			defer wg.Done()
+			debug.SetPanicOnFault(true) // a mapped file cut short: see faulted
 			for c := range chunks {
-				results <- r.work(c, runners[w], debug[w])
+				results <- r.work(c, runners[w], debugs[w])
 			}
 		}(w)
 	}
@@ -330,7 +408,7 @@ func (r *run) parallel(out *bufio.Writer, inputs []Input) int {
 					r.halt()
 				}
 			}
-			r.putBuf(p.chunk.buf)
+			r.release(p.chunk)
 			r.putOut(p.out)
 			<-r.tokens
 		}
@@ -343,7 +421,7 @@ func (r *run) parallel(out *bufio.Writer, inputs []Input) int {
 	}
 	if fatal != nil {
 		out.Flush()
-		fmt.Fprintf(cfg.Stderr, "%s: error: %v\n", r.name, fatal)
+		r.fatal(fatal)
 		return ExitUsage
 	}
 	if badLines > 0 {
@@ -388,7 +466,7 @@ func (r *run) parallel(out *bufio.Writer, inputs []Input) int {
 			finalCode = ExitRuntime
 		}
 	}
-	for _, d := range debug {
+	for _, d := range debugs {
 		if d.Len() > 0 {
 			out.Flush()
 			cfg.Stderr.Write(d.Bytes())
@@ -415,8 +493,13 @@ func (r *run) mergeCode(a, b int) int {
 }
 
 // work runs the filter on every value in a chunk.
-func (r *run) work(c *chunk, runner *query.Runner, debug *bytes.Buffer) *result {
-	res := &result{seq: c.seq, chunk: c}
+func (r *run) work(c *chunk, runner *query.Runner, debug *bytes.Buffer) (res *result) {
+	res = &result{seq: c.seq, chunk: c}
+	defer func() {
+		if err := faulted(recover(), c.file); err != nil {
+			res.fatal = err
+		}
+	}()
 	cfg := r.cfg
 	out := r.getOut()
 	var errs bytes.Buffer
@@ -548,3 +631,6 @@ func decodeDetached(v any) any {
 }
 
 var errStopped = errors.New("stopped")
+
+// errFault stops reading a mapped file that got shorter.
+var errFault = errors.New("fault")

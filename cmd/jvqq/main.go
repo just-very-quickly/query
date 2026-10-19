@@ -271,7 +271,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}})
 			continue
 		}
-		inputs = append(inputs, engine.Input{Name: name, Open: func() (io.ReadCloser, error) {
+		inputs = append(inputs, engine.Input{Name: name, Path: name, Open: func() (io.ReadCloser, error) {
 			f, err := os.Open(name)
 			if err != nil {
 				return nil, err
