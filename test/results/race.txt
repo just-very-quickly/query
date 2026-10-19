@@ -1,0 +1,4 @@
+ok  	github.com/just-very-quickly/query/cmd/jvqq	20.205s
+?   	github.com/just-very-quickly/query/internal/engine	[no test files]
+ok  	github.com/just-very-quickly/query/internal/jv	1.020s
+?   	github.com/just-very-quickly/query/internal/query	[no test files]

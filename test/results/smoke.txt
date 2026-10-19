@@ -1,0 +1,8 @@
+smoke: ok: version 0.1.0
+smoke: ok: select over a file, in order on 4 workers
+smoke: ok: select over standard input
+smoke: ok: gzip input
+smoke: ok: count_by
+smoke: ok: malformed lines skipped and counted; --strict stops
+smoke: ok: exit codes
+smoke: all checks passed

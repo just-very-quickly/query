@@ -1,0 +1,69 @@
+=== RUN   TestDifferentialAgainstJq
+    diff_test.go:142: jq-1.7.1: 518 filters gave the same output and exit code as jq, each run 5 ways (standard input and file, split differently); 4 unsupported features refused
+--- PASS: TestDifferentialAgainstJq (7.06s)
+=== RUN   TestOrderKept
+--- PASS: TestOrderKept (0.35s)
+=== RUN   TestLineEndings
+--- PASS: TestLineEndings (0.02s)
+=== RUN   TestSeveralValuesOnALine
+--- PASS: TestSeveralValuesOnALine (0.01s)
+=== RUN   TestLongLines
+--- PASS: TestLongLines (0.01s)
+=== RUN   TestMalformedLines
+--- PASS: TestMalformedLines (0.02s)
+=== RUN   TestStrict
+--- PASS: TestStrict (0.00s)
+=== RUN   TestDocuments
+--- PASS: TestDocuments (0.05s)
+=== RUN   TestCompressed
+--- PASS: TestCompressed (0.12s)
+=== RUN   TestSeveralFiles
+--- PASS: TestSeveralFiles (0.01s)
+=== RUN   TestAggregations
+--- PASS: TestAggregations (0.99s)
+=== RUN   TestExactSums
+--- PASS: TestExactSums (0.04s)
+=== RUN   TestErrorsAndExitCodes
+--- PASS: TestErrorsAndExitCodes (0.05s)
+=== RUN   TestHalt
+--- PASS: TestHalt (0.02s)
+=== RUN   TestInputs
+--- PASS: TestInputs (0.02s)
+=== RUN   TestSlurpAndRaw
+--- PASS: TestSlurpAndRaw (0.04s)
+=== RUN   TestHaltErrorOnInput
+--- PASS: TestHaltErrorOnInput (0.04s)
+=== RUN   TestByteOrderMark
+--- PASS: TestByteOrderMark (0.01s)
+=== RUN   TestLenientNumbers
+--- PASS: TestLenientNumbers (0.01s)
+=== RUN   TestDepthLimit
+--- PASS: TestDepthLimit (0.02s)
+=== RUN   TestInvalidUTF8
+--- PASS: TestInvalidUTF8 (0.01s)
+=== RUN   TestAggregationKeysStable
+--- PASS: TestAggregationKeysStable (0.10s)
+=== RUN   TestAggregationErrors
+--- PASS: TestAggregationErrors (0.03s)
+=== RUN   TestReadErrorsInOrder
+--- PASS: TestReadErrorsInOrder (0.00s)
+=== RUN   TestToNumberSpaces
+--- PASS: TestToNumberSpaces (0.01s)
+PASS
+ok  	github.com/just-very-quickly/query/cmd/jvqq	9.053s
+?   	github.com/just-very-quickly/query/internal/engine	[no test files]
+=== RUN   TestLiteralFormat
+--- PASS: TestLiteralFormat (0.00s)
+=== RUN   TestFloatFormat
+--- PASS: TestFloatFormat (0.00s)
+=== RUN   TestEncodeRawMatchesDecoded
+--- PASS: TestEncodeRawMatchesDecoded (0.00s)
+=== RUN   TestValid
+--- PASS: TestValid (0.00s)
+=== RUN   TestCompare
+--- PASS: TestCompare (0.00s)
+=== RUN   TestField
+--- PASS: TestField (0.00s)
+PASS
+ok  	github.com/just-very-quickly/query/internal/jv	0.011s
+?   	github.com/just-very-quickly/query/internal/query	[no test files]

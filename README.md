@@ -33,7 +33,7 @@ people end up writing a throwaway Python script instead. jvqq keeps the
 filter language and makes the big file fast.
 
 It's not the only fast jq. [qj](https://github.com/6/qj), built on simdjson,
-is about as fast or faster on several of the benchmarks below, and
+is a little faster than jvqq on two of the benchmarks below, and
 [jaq](https://github.com/01mf02/jaq) is a careful reimplementation. jvqq's
 angle is exact jq output on a single portable binary, aggregations that
 replace `reduce inputs` and `-s` on big files, and plain behavior on messy
@@ -186,11 +186,39 @@ Measured by [scripts/bench.py](scripts/bench.py) on 1 GiB of generated log
 lines ([test/bench/gen.go](test/bench/gen.go)), against jq 1.7.1, jaq, gojq
 and qj, with every output checked against jq's. The numbers below are from
 [test/results/bench.md](test/results/bench.md), which also gives the
-machine, the versions and the exact commands; the `bench` workflow records the
-same suite on a GitHub-hosted runner into
-[test/results/github/](test/results/github/).
+machine, the versions and the exact commands. The `bench` workflow records
+the same suite on a GitHub-hosted runner; its results go to the
+`bench-results` branch, and `scripts/record.sh` copies them into
+test/results/github/.
 
-BENCH_TABLE
+| workload | jq | jvqq | jvqq vs jq | jvqq, 1 core | qj | jaq | gojq |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| reformat | 67.5 s | **3.3 s** | 20x | 5.7 s | 3.9 s | 37.5 s | 78.6 s |
+| select | 38.7 s | **2.4 s** | 16x | 4.1 s | 2.1 s | 23.9 s | 56.9 s |
+| field | 33.1 s | **1.9 s** | 17x | 3.9 s | 1.8 s | 20.9 s | 55.1 s |
+| project | 42.2 s | **2.8 s** | 15x | 5.3 s | 3.0 s | 33.1 s | 62.2 s |
+| count | 30.4 s | **2.1 s** | 14x | 22.0 s ¹ | 7.0 s | 14.8 s | 40.4 s |
+| count by | 49.7 s | **2.1 s** | 23x | 27.8 s ¹ | 11.9 s | 18.0 s | 53.6 s |
+| sum by | 52.7 s | **3.0 s** | 18x | 28.4 s ¹ | 11.8 s | 21.3 s | 55.6 s |
+
+¹ For count, count by and sum by, jq and the others run `reduce inputs`. The
+"jvqq" column is jvqq's aggregation (`count`, `count_by(.service)`,
+`group_by(.service; {ms: sum(.latency_ms)})`); this column is jvqq running
+jq's `reduce inputs` filter, which reads in order on one core.
+
+Recorded on a 2-core Intel Xeon at 2.80GHz (Linux), median of 3 runs after
+a warm-up run. Every output was checked against jq's: jvqq's were the same
+bytes for the line-by-line filters and the same values for the
+aggregations. jvqq used at most 32 MiB; jaq used about 1 GiB on every
+workload. qj is a little faster than jvqq on select and field and slower on
+the rest. More cores help jvqq: a single-core run is in the "1 core" column.
+
+On a 6 GiB file (18,440,091 lines), jvqq alone, one run each:
+
+- count 17.8 s at 46 MiB (every line counted)
+- count by 22.4 s at 48 MiB (counts add up to the lines)
+- select 20.0 s at 49 MiB (2,303,691 lines out)
+- reformat 35.4 s at 43 MiB (one output line per input line)
 
 ## Exit codes
 
