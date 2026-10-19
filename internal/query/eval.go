@@ -341,6 +341,23 @@ func (c *compiler) compileField(x nField) (filter, error) {
 			return out(v)
 		}, nil
 	}
+	if singleValued(x.target) {
+		g, err := c.compileGetter(x.target)
+		if err != nil {
+			return nil, err
+		}
+		return func(e *env, in any, out emitFn) error {
+			t, err := g(e, in)
+			if err != nil {
+				return err
+			}
+			v, err := field(t, name)
+			if err != nil {
+				return skipOpt(opt, err)
+			}
+			return out(v)
+		}, nil
+	}
 	target, err := c.compile(x.target)
 	if err != nil {
 		return nil, err
@@ -663,12 +680,31 @@ func (c *compiler) compileBinop(x nBinop) (filter, error) {
 		return nil, err
 	}
 	op := x.op
-	// Comparing with a constant string is the hot path of select().
-	if lit, ok := x.right.(nLiteral); ok && (op == "==" || op == "!=") {
-		want := lit.v
-		eq := op == "=="
+	// Single values on both sides (select(.level == "error")) skip the
+	// callbacks.
+	if singleValued(x.left) && singleValued(x.right) {
+		gl, err := c.compileGetter(x.left)
+		if err != nil {
+			return nil, err
+		}
+		gr, err := c.compileGetter(x.right)
+		if err != nil {
+			return nil, err
+		}
 		return func(e *env, in any, out emitFn) error {
-			return l(e, in, func(a any) error { return out(jv.Equal(a, want) == eq) })
+			b, err := gr(e, in)
+			if err != nil {
+				return err
+			}
+			a, err := gl(e, in)
+			if err != nil {
+				return err
+			}
+			v, err := binop(op, a, b)
+			if err != nil {
+				return err
+			}
+			return out(v)
 		}, nil
 	}
 	// jq evaluates the right side first and the left side inside it.
@@ -937,6 +973,37 @@ func (c *compiler) compileObject(x nObject) (filter, error) {
 		}
 		entries[i] = entry{k, v}
 	}
+	// Fast path: constant, distinct keys and values that each give exactly
+	// one value, the common {ts, level, path: .request.path}.
+	if keys, ok := constKeys(x); ok {
+		single := true
+		for _, en := range x.entries {
+			if !singleValued(en.value) {
+				single = false
+			}
+		}
+		if single {
+			gets := make([]getter, len(x.entries))
+			for i, en := range x.entries {
+				g, err := c.compileGetter(en.value)
+				if err != nil {
+					return nil, err
+				}
+				gets[i] = g
+			}
+			return func(e *env, in any, out emitFn) error {
+				vals := make([]any, len(gets))
+				for i, g := range gets {
+					v, err := g(e, in)
+					if err != nil {
+						return err
+					}
+					vals[i] = v
+				}
+				return out(jv.ObjectOf(keys, vals))
+			}, nil
+		}
+	}
 	return func(e *env, in any, out emitFn) error {
 		keys := make([]string, len(entries))
 		vals := make([]any, len(entries))
@@ -962,6 +1029,95 @@ func (c *compiler) compileObject(x nObject) (filter, error) {
 		}
 		return run(0)
 	}, nil
+}
+
+// getter evaluates a filter that always gives exactly one value (see
+// singleValued) without the callback, which saves an allocation per call.
+type getter func(e *env, in any) (any, error)
+
+func (c *compiler) compileGetter(n node) (getter, error) {
+	switch x := n.(type) {
+	case nIdentity:
+		return func(_ *env, in any) (any, error) { return in, nil }, nil
+	case nLiteral:
+		v := x.v
+		return func(*env, any) (any, error) { return v, nil }, nil
+	case nVar:
+		f, err := c.compile(x)
+		if err != nil {
+			return nil, err
+		}
+		return func(e *env, in any) (any, error) {
+			var v any
+			err := f(e, in, func(w any) error { v = w; return nil })
+			return v, err
+		}, nil
+	case nField:
+		name := x.name
+		if _, ok := x.target.(nIdentity); ok {
+			return func(_ *env, in any) (any, error) { return field(in, name) }, nil
+		}
+		t, err := c.compileGetter(x.target)
+		if err != nil {
+			return nil, err
+		}
+		return func(e *env, in any) (any, error) {
+			v, err := t(e, in)
+			if err != nil {
+				return nil, err
+			}
+			return field(v, name)
+		}, nil
+	case nIndex:
+		t, err := c.compileGetter(x.target)
+		if err != nil {
+			return nil, err
+		}
+		k := x.index.(nLiteral).v
+		return func(e *env, in any) (any, error) {
+			v, err := t(e, in)
+			if err != nil {
+				return nil, err
+			}
+			return indexValue(v, k)
+		}, nil
+	}
+	return nil, fmt.Errorf("internal error: no getter for %T", n)
+}
+
+// constKeys returns the keys of an object construction when they are all
+// constant strings and distinct.
+func constKeys(x nObject) ([]string, bool) {
+	keys := make([]string, len(x.entries))
+	seen := map[string]bool{}
+	for i, en := range x.entries {
+		lit, ok := en.key.(nLiteral)
+		if !ok {
+			return nil, false
+		}
+		k, ok := lit.v.(string)
+		if !ok || seen[k] {
+			return nil, false
+		}
+		seen[k] = true
+		keys[i] = k
+	}
+	return keys, true
+}
+
+// singleValued reports whether n always gives exactly one value or an
+// error: paths of plain fields, literals and variables.
+func singleValued(n node) bool {
+	switch x := n.(type) {
+	case nIdentity, nLiteral, nVar:
+		return true
+	case nField:
+		return !x.opt && singleValued(x.target)
+	case nIndex:
+		_, lit := x.index.(nLiteral)
+		return !x.opt && lit && singleValued(x.target)
+	}
+	return false
 }
 
 func (c *compiler) compileReduce(x nReduce) (filter, error) {

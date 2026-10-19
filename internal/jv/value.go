@@ -51,6 +51,21 @@ func NewObject(n int) *Object {
 	return &Object{Keys: make([]string, 0, n), Vals: make([]any, 0, n)}
 }
 
+// ObjectOf makes an object from distinct keys and their values. The keys
+// slice may be shared between objects: objects are not changed after they
+// are made (Set and Delete are only used on new objects or copies), and
+// Copy copies the keys.
+func ObjectOf(keys []string, vals []any) *Object {
+	o := &Object{Keys: keys, Vals: vals}
+	if len(keys) > 16 {
+		o.idx = make(map[string]int, len(keys)*2)
+		for i, k := range keys {
+			o.idx[k] = i
+		}
+	}
+	return o
+}
+
 func (o *Object) Len() int { return len(o.Keys) }
 
 func (o *Object) find(k string) int {
