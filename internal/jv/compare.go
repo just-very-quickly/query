@@ -136,6 +136,14 @@ func AsNumber(v any) (Number, bool) {
 }
 
 func compareNumbers(a, b Number) int {
+	// Rounding to float64 keeps order, so different floats settle it; only
+	// literals that round to the same float need the exact comparison.
+	if a.F < b.F {
+		return -1
+	}
+	if a.F > b.F {
+		return 1
+	}
 	if a.Lit != "" && b.Lit != "" {
 		if c, ok := compareLiterals(a.Lit, b.Lit); ok {
 			return c

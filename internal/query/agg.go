@@ -4,9 +4,11 @@
 package query
 
 import (
+	"bytes"
+	"encoding/binary"
 	"math"
-	"sort"
-	"strconv"
+	"slices"
+	"strings"
 
 	"github.com/just-very-quickly/query/internal/jv"
 )
@@ -119,7 +121,7 @@ func newAggState(spec *aggSpec) *aggState {
 		case aggCount:
 			s.accs[i] = &countAcc{}
 		case aggCountBy:
-			s.accs[i] = &countByAcc{m: map[string]*countEntry{}}
+			s.accs[i] = &countByAcc{m: map[string]countEntry{}}
 		case aggSum:
 			s.accs[i] = &sumAcc{name: "sum"}
 		case aggAvg:
@@ -181,14 +183,24 @@ func groupKey(v any) string {
 	return string(appendKey(nil, v))
 }
 
+// appendKey appends the group key of v to b: equal for values jq
+// considers equal.
 func appendKey(b []byte, v any) []byte {
 	switch jv.KindOf(v) {
 	case jv.KNumber:
 		n, _ := jv.AsNumber(v)
-		b = append(b, 'n')
-		return strconv.AppendFloat(b, n.F, 'g', -1, 64)
+		f := n.F
+		if f == 0 {
+			f = 0 // -0 equals 0
+		}
+		return binary.LittleEndian.AppendUint64(append(b, 'n'), math.Float64bits(f))
 	case jv.KString:
 		b = append(b, 's')
+		if r, ok := jv.RawOf(v); ok {
+			if body, ok := jv.RawPlainString(r); ok {
+				return append(b, body...)
+			}
+		}
 		return append(b, jv.Str(v)...)
 	case jv.KArray:
 		b = append(b, '[')
@@ -217,25 +229,37 @@ type countEntry struct {
 	n   int64
 }
 
-type countByAcc struct{ m map[string]*countEntry }
+type countByAcc struct {
+	m   map[string]countEntry
+	buf []byte
+}
 
 // preferKey picks between two keys jq considers equal, so the one shown
 // doesn't depend on input order: numbers like 1 and 1.0 print differently.
 func preferKey(cur, cand any) any {
-	if jv.KindOf(cur) == jv.KNumber && toString(cand) < toString(cur) {
+	if jv.KindOf(cur) != jv.KNumber {
+		return cur
+	}
+	if a, ok := jv.RawOf(cur); ok {
+		if b, ok := jv.RawOf(cand); ok && bytes.Equal(a, b) {
+			return cur // the same text: nothing to choose
+		}
+	}
+	if toString(cand) < toString(cur) {
 		return jv.Detach(cand)
 	}
 	return cur
 }
 
 func (a *countByAcc) add(k any) error {
-	gk := groupKey(k)
-	if e, ok := a.m[gk]; ok {
+	a.buf = appendKey(a.buf[:0], k)
+	if e, ok := a.m[string(a.buf)]; ok { // looked up without a copy
 		e.n++
 		e.key = preferKey(e.key, k)
+		a.m[string(a.buf)] = e
 		return nil
 	}
-	a.m[gk] = &countEntry{jv.Detach(k), 1}
+	a.m[string(a.buf)] = countEntry{jv.Detach(k), 1}
 	return nil
 }
 
@@ -244,23 +268,47 @@ func (a *countByAcc) merge(o acc) {
 		if e, ok := a.m[gk]; ok {
 			e.n += oe.n
 			e.key = preferKey(e.key, oe.key)
+			a.m[gk] = e
 		} else {
 			a.m[gk] = oe
 		}
 	}
 }
 
+// compareKeys is jv.Compare with quick paths for the usual keys: decoded
+// numbers and strings.
+func compareKeys(a, b any) int {
+	switch x := a.(type) {
+	case jv.Number:
+		if y, ok := b.(jv.Number); ok && x.F != y.F && x.F == x.F && y.F == y.F {
+			if x.F < y.F {
+				return -1
+			}
+			return 1
+		}
+	case string:
+		if y, ok := b.(string); ok {
+			return strings.Compare(x, y)
+		}
+	}
+	return jv.Compare(a, b)
+}
+
 // result is an object of counts, the most frequent first.
 func (a *countByAcc) result() any {
-	es := make([]*countEntry, 0, len(a.m))
+	es := make([]countEntry, 0, len(a.m))
 	for _, e := range a.m {
+		e.key = jv.Norm(e.key) // decode raw keys once, not per comparison
 		es = append(es, e)
 	}
-	sort.Slice(es, func(i, j int) bool {
-		if es[i].n != es[j].n {
-			return es[i].n > es[j].n
+	slices.SortFunc(es, func(x, y countEntry) int {
+		if x.n != y.n {
+			if x.n > y.n {
+				return -1
+			}
+			return 1
 		}
-		return jv.Compare(es[i].key, es[j].key) < 0
+		return compareKeys(x.key, y.key)
 	})
 	o := jv.NewObject(len(es))
 	for _, e := range es {
@@ -373,15 +421,16 @@ type groupAcc struct {
 	spec *aggSpec
 	m    map[string]*groupEntry
 	env  *env
+	buf  []byte
 }
 
 func (a *groupAcc) feed(e *env, k, v any) error {
 	a.env = e
-	gk := groupKey(k)
-	g, ok := a.m[gk]
+	a.buf = appendKey(a.buf[:0], k)
+	g, ok := a.m[string(a.buf)]
 	if !ok {
 		g = &groupEntry{jv.Detach(k), newAggState(a.spec)}
-		a.m[gk] = g
+		a.m[string(a.buf)] = g
 	} else {
 		g.key = preferKey(g.key, k)
 	}
@@ -411,9 +460,10 @@ func (a *groupAcc) merge(o acc) {
 func (a *groupAcc) result() any {
 	es := make([]*groupEntry, 0, len(a.m))
 	for _, e := range a.m {
+		e.key = jv.Norm(e.key) // decode raw keys once, not per comparison
 		es = append(es, e)
 	}
-	sort.Slice(es, func(i, j int) bool { return jv.Compare(es[i].key, es[j].key) < 0 })
+	slices.SortFunc(es, func(x, y *groupEntry) int { return compareKeys(x.key, y.key) })
 	rows := []any{}
 	for _, g := range es {
 		e := a.env.bind(aggVar, g.state.results())

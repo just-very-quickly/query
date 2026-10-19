@@ -139,6 +139,7 @@ func (r *run) release(c *chunk) {
 		r.putBuf(c.buf)
 	}
 	if c.mapping != nil {
+		dropPages(c.data) // keeps memory use flat however large the file
 		c.mapping.done()
 	}
 }

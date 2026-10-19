@@ -146,6 +146,12 @@ value:
 		e, err := validNumber(b, i)
 		if err != nil {
 			if c != '-' && (c < '0' || c > '9') {
+				switch c {
+				case '}', ']':
+					return i, synErr(i, "Unmatched '"+string(c)+"'")
+				case ',', ':':
+					return i, synErr(i, "Expected value before '"+string(c)+"'")
+				}
 				return i, synErr(i, "Invalid literal")
 			}
 			return e, err

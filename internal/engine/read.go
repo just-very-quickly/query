@@ -78,7 +78,7 @@ func (r *run) read(inputs []Input, chunks chan<- *chunk) int {
 		}
 		rc, err := openInput(in)
 		if err != nil {
-			fmt.Fprintf(r.cfg.Stderr, "%s: error: could not open %v\n", r.name, err)
+			fmt.Fprintf(r.cfg.Stderr, "%s: error: %v\n", r.name, err)
 			code = ExitUsage
 			continue
 		}
