@@ -42,6 +42,7 @@ type Config struct {
 	RawInput   bool // -R: each line is a string
 	ExitStatus bool // -e
 	Strict     bool // stop at the first invalid line instead of skipping it
+	Unbuffered bool // write the output out after each chunk of input
 	Workers    int  // 0 means one per CPU
 	ChunkSize  int  // bytes per chunk; 0 means the default
 	Stdout     io.Writer
@@ -383,6 +384,9 @@ func (r *run) parallel(out *bufio.Writer, inputs []Input) int {
 			next++
 			if fatal == nil && halted == nil {
 				out.Write(p.out)
+				if cfg.Unbuffered {
+					out.Flush()
+				}
 				if len(p.errs) > 0 {
 					out.Flush()
 					cfg.Stderr.Write(p.errs)

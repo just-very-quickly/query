@@ -153,6 +153,9 @@ func (r *run) sequential(out *bufio.Writer, inputs []Input) int {
 	emit := func(v any) error {
 		buf = r.encode(buf[:0], v)
 		out.Write(buf)
+		if cfg.Unbuffered {
+			out.Flush()
+		}
 		outputs++
 		lastTrue = jv.Truthy(v)
 		return nil

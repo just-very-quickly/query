@@ -402,6 +402,22 @@ func Decode(b []byte) (any, error) {
 	return v, nil
 }
 
+// DecodeAll parses every JSON value in b, one after another (as
+// --slurpfile reads a file), into an array.
+func DecodeAll(b []byte) ([]any, error) {
+	out := []any{}
+	for i := SkipSpace(b, 0); i < len(b); i = SkipSpace(b, i) {
+		end, err := Valid(b, i)
+		if err != nil {
+			return nil, err
+		}
+		v, _ := decode(b, i)
+		out = append(out, v)
+		i = end
+	}
+	return out, nil
+}
+
 // DecodeValid decodes the value starting at b[i], which must be valid
 // (checked by Valid), and returns it with the index after it.
 func DecodeValid(b []byte, i int) (any, int) { return decode(b, i) }

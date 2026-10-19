@@ -477,3 +477,5 @@
 -nc	[-5, -1.50, 0, -0, 2.0, 1e1000, -1e1000, "a", [1], {"a":-1}] | map(abs)
 -nc	[null, true, false, nan, -nan][] | try abs catch .
 -c	.ms? | abs
+-nc --arg x 1 --argjson y {"a":[2]}	$ARGS
+-c --arg level error	select(.level == $level) | $ARGS.named

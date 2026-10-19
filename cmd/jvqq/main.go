@@ -45,7 +45,13 @@ Options (as in jq):
       --indent n         indent with n spaces (default 2)
       --arg name value   set $name to the string value
       --argjson name json  set $name to the JSON value
+      --rawfile name file  set $name to the file's text
+      --slurpfile name file  set $name to an array of the file's JSON values
+      --args             the arguments after the filter are strings in
+                         $ARGS.positional, not files
+      --jsonargs         the same, as JSON values
   -f, --from-file file   read the filter from file
+      --unbuffered       write output as each chunk of input is done
   -M, --monochrome-output  accepted for jq compatibility (jvqq has no color)
 
 jvqq's own options:
@@ -88,6 +94,20 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	cfg := engine.Config{Stdout: stdout, Stderr: stderr, Name: "jvqq"}
 	vars := map[string]any{}
 	var positional []string
+	// $ARGS: named holds --arg, --argjson, --rawfile and --slurpfile values
+	// in order; after --args or --jsonargs, the arguments after the filter
+	// are positional values instead of files.
+	named := jv.NewObject(0)
+	setVar := func(name string, v any) {
+		vars[name] = v
+		named.Set(name, v)
+	}
+	argsMode := "" // "", "args" or "jsonargs"
+	type posArg struct {
+		s    string
+		mode string
+	}
+	var posArgs []posArg
 	filterSet := false
 	var filterText string
 	fail := func(format string, a ...any) int {
@@ -99,12 +119,14 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if a == "--" {
-			positional = append(positional, args[i+1:]...)
+			for _, a := range args[i+1:] {
+				posArgs = append(posArgs, posArg{a, argsMode})
+			}
 			break
 		}
 		// Like jq, only -x and --x look like options; -.a or -1 is a filter.
 		if !strings.HasPrefix(a, "-") || a == "-" || !(a[1] == '-' || isLetter(a[1])) {
-			positional = append(positional, a)
+			posArgs = append(posArgs, posArg{a, argsMode})
 			continue
 		}
 		if strings.HasPrefix(a, "--") {
@@ -149,14 +171,35 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				name, val := args[i+1], args[i+2]
 				i += 2
 				if a == "--arg" {
-					vars[name] = val
+					setVar(name, val)
 				} else {
 					v, err := jv.Decode([]byte(val))
 					if err != nil {
 						return fail("invalid JSON text passed to --argjson")
 					}
-					vars[name] = v
+					setVar(name, v)
 				}
+			case "--rawfile", "--slurpfile":
+				if !need(i, 2, a) {
+					return fail("%s takes two parameters (e.g. %s varname filename)", a, a)
+				}
+				name, file := args[i+1], args[i+2]
+				i += 2
+				b, err := os.ReadFile(file)
+				if err != nil {
+					return fail("%s: %v", a, err)
+				}
+				if a == "--rawfile" {
+					setVar(name, string(b))
+				} else {
+					vals, err := jv.DecodeAll(b)
+					if err != nil {
+						return fail("%s: %s: %v", a, file, err)
+					}
+					setVar(name, vals)
+				}
+			case "--args", "--jsonargs":
+				argsMode = a[2:]
 			case "--from-file":
 				if !need(i, 1, a) {
 					return fail("%s takes a file name", a)
@@ -169,6 +212,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				i++
 			case "--strict":
 				cfg.Strict = true
+			case "--unbuffered":
+				cfg.Unbuffered = true
 			case "--workers":
 				if !need(i, 1, a) {
 					return fail("--workers takes a number")
@@ -246,11 +291,32 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 	if !filterSet {
-		if len(positional) == 0 {
+		if len(posArgs) == 0 {
 			fmt.Fprint(stderr, usage)
 			return engine.ExitUsage
 		}
-		filterText, positional = positional[0], positional[1:]
+		filterText, posArgs = posArgs[0].s, posArgs[1:]
+	}
+	posValues := []any{}
+	for _, p := range posArgs {
+		switch p.mode {
+		case "args":
+			posValues = append(posValues, p.s)
+		case "jsonargs":
+			v, err := jv.Decode([]byte(p.s))
+			if err != nil {
+				return fail("invalid JSON text passed to --jsonargs")
+			}
+			posValues = append(posValues, v)
+		default:
+			positional = append(positional, p.s)
+		}
+	}
+	if _, set := vars["ARGS"]; !set {
+		a := jv.NewObject(2)
+		a.Set("positional", posValues)
+		a.Set("named", named)
+		vars["ARGS"] = a
 	}
 	prog, err := query.Compile(filterText, vars)
 	if err != nil {
