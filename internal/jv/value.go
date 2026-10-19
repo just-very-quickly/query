@@ -166,6 +166,8 @@ func KindOf(v any) Kind {
 		return KObject
 	case Raw:
 		return rawKind(x)
+	case *Doc:
+		return rawKind(x.Raw)
 	}
 	panic("jv: not a value")
 }
@@ -194,7 +196,7 @@ func rawKind(r Raw) Kind {
 // Norm decodes v if it is Raw; other values are returned as they are.
 // Containers built by a filter may still hold Raw members.
 func Norm(v any) any {
-	if r, ok := v.(Raw); ok {
+	if r, ok := RawOf(v); ok {
 		d, err := Decode(r)
 		if err != nil {
 			// Raw is only made from validated text.
@@ -214,6 +216,8 @@ func Truthy(v any) bool {
 		return x
 	case Raw:
 		return x[0] != 'n' && x[0] != 'f'
+	case *Doc:
+		return x.Raw[0] != 'n' && x.Raw[0] != 'f'
 	}
 	return true
 }
@@ -224,6 +228,8 @@ func Detach(v any) any {
 	switch x := v.(type) {
 	case Raw:
 		return Raw(append([]byte(nil), x...))
+	case *Doc:
+		return Raw(append([]byte(nil), x.Raw...))
 	case []any:
 		var out []any
 		for i, e := range x {
@@ -266,7 +272,7 @@ func Detach(v any) any {
 // sameValue reports whether Detach left a value untouched (no Raw inside).
 func sameValue(a, b any) bool {
 	switch x := a.(type) {
-	case Raw:
+	case Raw, *Doc:
 		return false
 	case []any:
 		y, ok := b.([]any)

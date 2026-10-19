@@ -102,6 +102,8 @@ func encode(buf []byte, v any, f Format, level int) []byte {
 		return append(buf, '}')
 	case Raw:
 		return encodeRaw(buf, x, f, level)
+	case *Doc:
+		return encodeRaw(buf, x.Raw, f, level)
 	}
 	panic("jv: not a value")
 }
@@ -120,6 +122,9 @@ func encodeRaw(buf []byte, r Raw, f Format, level int) []byte {
 	case 't', 'f', 'n':
 		return append(buf, r...)
 	case '{', '[':
+		if f.Compact && !f.SortKeys && canonical(r) {
+			return append(buf, r...)
+		}
 		if r[0] == '{' && (f.SortKeys || hasDuplicateKeys(r)) {
 			return encode(buf, Norm(r), f, level)
 		}

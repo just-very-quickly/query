@@ -141,19 +141,19 @@ func lengthOf(in any) (any, error) {
 		n, _ := jv.AsNumber(in)
 		return jv.Num(math.Abs(n.F)), nil
 	case jv.KString:
-		if r, ok := in.(jv.Raw); ok {
+		if r, ok := jv.RawOf(in); ok {
 			if body, ok := jv.RawPlainString(r); ok {
 				return jv.Num(float64(len(body))), nil
 			}
 		}
 		return jv.Num(float64(utf8.RuneCountInString(jv.Str(in)))), nil
 	case jv.KArray:
-		if r, ok := in.(jv.Raw); ok {
+		if r, ok := jv.RawOf(in); ok {
 			return jv.Num(float64(jv.Len(r))), nil
 		}
 		return jv.Num(float64(len(in.([]any)))), nil
 	}
-	if r, ok := in.(jv.Raw); ok {
+	if r, ok := jv.RawOf(in); ok {
 		return jv.Num(float64(jv.Len(r))), nil
 	}
 	return jv.Num(float64(in.(*jv.Object).Len())), nil
@@ -186,7 +186,7 @@ func hasKey(in, k any) (any, error) {
 	case jv.KindOf(in) == jv.KNull:
 		return false, nil
 	case jv.KindOf(in) == jv.KObject && jv.KindOf(k) == jv.KString:
-		if r, ok := in.(jv.Raw); ok {
+		if r, ok := jv.RawOf(in); ok {
 			_, found := jv.Field(r, jv.Str(k))
 			return found, nil
 		}

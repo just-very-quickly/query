@@ -14,6 +14,7 @@ import (
 // arrays element by element, objects by their sorted keys and then their
 // values. It returns -1, 0 or 1.
 func Compare(a, b any) int {
+	a, b = unwrap(a), unwrap(b)
 	ka, kb := KindOf(a), KindOf(b)
 	if ka != kb {
 		if ka < kb {
@@ -78,6 +79,7 @@ func Compare(a, b any) int {
 
 // Equal reports whether jq considers a and b equal.
 func Equal(a, b any) bool {
+	a, b = unwrap(a), unwrap(b)
 	// Fast path: a raw string against a string.
 	if ra, ok := a.(Raw); ok {
 		if s, ok := b.(string); ok {
@@ -104,7 +106,7 @@ func rawStringEquals(r Raw, s string) bool {
 
 // Str returns the string value of a string or raw string.
 func Str(v any) string {
-	if r, ok := v.(Raw); ok {
+	if r, ok := RawOf(v); ok {
 		return RawString(r)
 	}
 	return v.(string)
@@ -112,7 +114,7 @@ func Str(v any) string {
 
 // number returns the number value of a number or raw number.
 func number(v any) Number {
-	if r, ok := v.(Raw); ok {
+	if r, ok := RawOf(v); ok {
 		return NumberFromLit(string(r))
 	}
 	return v.(Number)
@@ -127,6 +129,8 @@ func AsNumber(v any) (Number, bool) {
 		if rawKind(x) == KNumber {
 			return NumberFromLit(string(x)), true
 		}
+	case *Doc:
+		return AsNumber(x.Raw)
 	}
 	return Number{}, false
 }

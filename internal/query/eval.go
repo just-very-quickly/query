@@ -369,6 +369,16 @@ func field(v any, name string) (any, error) {
 		if x[0] == 'n' {
 			return nil, nil
 		}
+	case *jv.Doc:
+		if x.Raw[0] == '{' {
+			if f, ok := x.Field(name); ok {
+				return f, nil
+			}
+			return nil, nil
+		}
+		if x.Raw[0] == 'n' {
+			return nil, nil
+		}
 	case *jv.Object:
 		f, _ := x.Get(name)
 		return f, nil
@@ -390,7 +400,7 @@ func indexValue(t, k any) (any, error) {
 			return nil, nil
 		case jv.KArray:
 			i := math.Floor(n.F)
-			if r, ok := t.(jv.Raw); ok {
+			if r, ok := jv.RawOf(t); ok {
 				if i < 0 {
 					i += float64(jv.Len(r))
 				}
@@ -448,6 +458,10 @@ func iterate(t any, out emitFn) error {
 	case jv.Raw:
 		if x[0] == '[' || x[0] == '{' {
 			return jv.Each(x, func(_ jv.Raw, v jv.Raw) error { return out(v) })
+		}
+	case *jv.Doc:
+		if x.Raw[0] == '[' || x.Raw[0] == '{' {
+			return jv.Each(x.Raw, func(_ jv.Raw, v jv.Raw) error { return out(v) })
 		}
 	case []any:
 		for _, v := range x {

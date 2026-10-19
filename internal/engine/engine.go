@@ -90,6 +90,7 @@ type run struct {
 	name    string
 	workers int
 	pool    sync.Pool
+	outPool sync.Pool // output buffers
 	tokens  chan struct{}
 	stop    chan struct{}
 	stopped sync.Once
@@ -104,6 +105,19 @@ func (r *run) getBuf(n int) *[]byte {
 	}
 	b := make([]byte, n)
 	return &b
+}
+
+func (r *run) getOut() []byte {
+	if p, ok := r.outPool.Get().(*[]byte); ok {
+		return (*p)[:0]
+	}
+	return make([]byte, 0, r.cfg.ChunkSize+r.cfg.ChunkSize/4)
+}
+
+func (r *run) putOut(b []byte) {
+	if cap(b) <= 8*r.cfg.ChunkSize {
+		r.outPool.Put(&b)
+	}
 }
 
 func (r *run) putBuf(p *[]byte) {
@@ -219,7 +233,7 @@ func (r *run) printError(err error, where string) {
 // encode writes one output value the way jq does.
 func (r *run) encode(buf []byte, v any) []byte {
 	if r.cfg.RawOutput && jv.KindOf(v) == jv.KString {
-		if raw, ok := v.(jv.Raw); ok {
+		if raw, ok := jv.RawOf(v); ok {
 			if body, ok := jv.RawPlainString(raw); ok {
 				buf = append(buf, body...)
 			} else {
@@ -317,6 +331,7 @@ func (r *run) parallel(out *bufio.Writer, inputs []Input) int {
 				}
 			}
 			r.putBuf(p.chunk.buf)
+			r.putOut(p.out)
 			<-r.tokens
 		}
 	}
@@ -403,7 +418,7 @@ func (r *run) mergeCode(a, b int) int {
 func (r *run) work(c *chunk, runner *query.Runner, debug *bytes.Buffer) *result {
 	res := &result{seq: c.seq, chunk: c}
 	cfg := r.cfg
-	var out []byte
+	out := r.getOut()
 	var errs bytes.Buffer
 	line := c.line
 	where := func(ln int) string { return fmt.Sprintf("%s:%d", c.file, ln) }
@@ -448,13 +463,14 @@ func (r *run) work(c *chunk, runner *query.Runner, debug *bytes.Buffer) *result 
 	}
 	runner.SetFile(c.file)
 	data := c.data
+	doc := &jv.Doc{}
 	if c.document {
 		// The reader checked these values; values may span lines.
 		i := jv.SkipSpace(data, 0)
 		for i < len(data) {
-			end, _ := jv.Valid(data, i)
+			end, _ := jv.ValidDoc(data, i, doc)
 			ln := line + bytes.Count(data[:i], []byte{'\n'})
-			process(jv.Raw(data[i:end]), ln)
+			process(doc, ln)
 			if res.halt != nil {
 				break
 			}
@@ -483,7 +499,7 @@ func (r *run) work(c *chunk, runner *query.Runner, debug *bytes.Buffer) *result 
 			}
 			i := jv.SkipSpace(l, 0)
 			for i < len(l) {
-				end, err := jv.Valid(l, i)
+				end, err := jv.ValidDoc(l, i, doc)
 				if err != nil {
 					col := err.(*jv.SyntaxError).Off + 1
 					if cfg.Strict {
@@ -496,7 +512,7 @@ func (r *run) work(c *chunk, runner *query.Runner, debug *bytes.Buffer) *result 
 					}
 					break
 				}
-				process(jv.Raw(l[i:end]), line)
+				process(doc, line)
 				if res.halt != nil {
 					break
 				}
@@ -524,7 +540,7 @@ func validString(b []byte) string {
 // decodeDetached decodes a raw value fully (for -s, where values outlive
 // their chunk).
 func decodeDetached(v any) any {
-	if raw, ok := v.(jv.Raw); ok {
+	if raw, ok := jv.RawOf(v); ok {
 		d, _ := jv.DecodeValid(raw, 0)
 		return d
 	}

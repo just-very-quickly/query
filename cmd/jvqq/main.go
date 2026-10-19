@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 
@@ -70,6 +71,16 @@ compile, 5 filter error on some input.
 `
 
 func main() {
+	if p := os.Getenv("JVQQ_CPUPROFILE"); p != "" {
+		f, err := os.Create(p)
+		if err == nil {
+			pprof.StartCPUProfile(f)
+			code := run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
+			pprof.StopCPUProfile()
+			f.Close()
+			os.Exit(code)
+		}
+	}
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 

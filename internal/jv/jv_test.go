@@ -53,6 +53,9 @@ func TestEncodeRawMatchesDecoded(t *testing.T) {
 		"\"\x7f\xff\"",
 		`"\ud83d\ude00"`,
 		`{"k\u0041":1,"kA":2}`,
+		`{"":1,"":2}`,
+		`{"a":{"x":1,"x":2},"b":[{"y":1},{"y":2,"z":1E2}]}`,
+		`{"a":"\n\t\"\\\b\f\r","b":-0.0000001,"c":0.000001,"d":"\u00e9\/"}`,
 	}
 	for _, in := range inputs {
 		v, err := Decode([]byte(in))
@@ -64,6 +67,13 @@ func TestEncodeRawMatchesDecoded(t *testing.T) {
 			b := string(Encode(nil, Raw(in), f))
 			if a != b {
 				t.Errorf("%s %+v:\n decoded %s\n raw     %s", in, f, a, b)
+			}
+			d := &Doc{}
+			if _, err := ValidDoc([]byte(in), SkipSpace([]byte(in), 0), d); err != nil {
+				t.Fatal(err)
+			}
+			if c := string(Encode(nil, d, f)); c != a {
+				t.Errorf("%s %+v:\n decoded %s\n doc     %s", in, f, a, c)
 			}
 		}
 	}
