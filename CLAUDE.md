@@ -6,8 +6,13 @@ the owner says go. There is no separate roadmap file.
 
 This repository, `just-very-quickly/query`, holds jvqq, a JSON Lines query
 tool, under the same organization as jvq (`just-very-quickly/jvq`, JVQ.net).
-Website and branding for jvqq are not decided yet: no site work until the
-owner settles them.
+jvqq's website is JVQ.net (repo `photozeitgeist/jvq.net`, Hugo, launch
+theme), shared with jvq since October 2026: the home page speaks for both,
+jvqq has the Query page (/query/), a section on Quick start, Download and
+Reference, and posts tagged `jvqq`. Every page and post about jvqq carries
+the note that it is independent of jq, not a fork and not affiliated with
+the jq project. Site numbers come from test/results only; update the Query
+page and the home figures when a new recording changes them.
 
 jvqq runs on the owner's low maintenance workflow: Claude does the code, tests,
 docs, CI, releases and upkeep; the owner gives the go-ahead. The code is
